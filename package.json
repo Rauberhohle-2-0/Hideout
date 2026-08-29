@@ -1,0 +1,26 @@
+{
+  "name": "hideout",
+  "version": "1.0.0",
+  "description": "Secure Bun + TypeScript project with colored logging",
+  "type": "module",
+  "private": true,
+  "main": "dist/main/main.js",
+  "scripts": {
+    "start": "npm run build && electron .",
+    "build": "tsc && mkdir -p dist/renderer && cp src/renderer/index.html dist/renderer/index.html",
+    "dev": "npm run build && electron .",
+    "dev:watch": "tsc --watch",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@hono/node-server": "^2.1.1",
+    "hono": "^4.13.5"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/node": "^26.4.0",
+    "electron": "^44.0.0",
+    "typescript": "^5.7.0"
+  }
+}
