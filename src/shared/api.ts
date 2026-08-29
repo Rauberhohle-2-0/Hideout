@@ -5,14 +5,51 @@ export const HELLO_WORLD = "Hello World";
 export const IPC_CHANNELS = {
   HELLO_WORLD: "hello-world",
   PING: "ping",
+  AI_LIST_PROVIDERS: "ai:list-providers",
+  AI_HEALTH: "ai:health",
+  AI_LIST_MODELS: "ai:list-models",
+  AI_CHAT: "ai:chat",
 } as const;
 
 export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS];
+
+// Shared AI wire types — no secrets ever cross this boundary
+export interface AiProviderInfo {
+  id: string;
+  displayName: string;
+  kind: "local" | "cloud";
+  capabilities: { chat: boolean; streaming: boolean; embeddings?: boolean; tools?: boolean; vision?: boolean };
+  config: { id: string; displayName?: string; baseUrl?: string; defaultModel?: string };
+}
+
+export interface AiChatIpcRequest {
+  providerId: string;
+  messages: Array<{ role: "system" | "user" | "assistant" | "tool"; content: string }>;
+  model?: string;
+  temperature?: number;
+  maxTokens?: number;
+  topP?: number;
+  stop?: string[];
+}
+
+export interface AiChatIpcResponse {
+  id: string;
+  model: string;
+  created: number;
+  content: string;
+  finishReason: string;
+  usage?: { promptTokens?: number; completionTokens?: number; totalTokens?: number };
+}
 
 /** Minimal API exposed to renderer via contextBridge */
 export interface Api {
   getHelloWorld(): Promise<string>;
   ping(): Promise<string>;
+  // AI — universal provider interface (Ollama today, OpenAI/Claude tomorrow)
+  aiListProviders(): Promise<AiProviderInfo[]>;
+  aiHealth(providerId: string): Promise<{ ok: boolean; latencyMs?: number; version?: string; error?: string }>;
+  aiListModels(providerId: string): Promise<Array<{ id: string; name: string; ownedBy?: string }>>;
+  aiChat(req: AiChatIpcRequest): Promise<AiChatIpcResponse>;
 }
 
 declare global {
