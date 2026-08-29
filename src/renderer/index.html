@@ -3,17 +3,259 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Hideout</title>
+  <title>Hideout · AI Connection</title>
   <!-- Strict CSP: no unsafe-eval; connect-src allows local Hono (127.0.0.1) for AI API -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' http://127.0.0.1:* http://localhost:*; base-uri 'none'; form-action 'none';" />
+  <meta
+    http-equiv="Content-Security-Policy"
+    content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' http://127.0.0.1:* http://localhost:*; base-uri 'none'; form-action 'none';"
+  />
   <style>
-    :root { color-scheme: light dark; }
-    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; display:flex; align-items:center; justify-content:center; height:100vh; margin:0; }
-    #hello { font-size: 2rem; font-weight: 600; }
+    :root {
+      color-scheme: light dark;
+      --bg: #f6f7f9;
+      --card: #ffffff;
+      --border: #e2e5ea;
+      --text: #1c2430;
+      --muted: #6b7280;
+      --accent: #4f46e5;
+      --ok: #16a34a;
+      --ok-bg: #ecfdf3;
+      --err: #dc2626;
+      --err-bg: #fef2f2;
+      --warn: #d97706;
+      --checking: #d6b23a;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #101419;
+        --card: #171c23;
+        --border: #2a313b;
+        --text: #e7ecf2;
+        --muted: #9aa3af;
+        --accent: #818cf8;
+        --ok: #34d399;
+        --ok-bg: #0f2a1f;
+        --err: #f87171;
+        --err-bg: #2b1517;
+        --warn: #fbbf24;
+        --checking: #fde68a;
+      }
+    }
+
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .app {
+      max-width: 640px;
+      margin: 0 auto;
+      padding: 32px 20px 48px;
+    }
+
+    header.top {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 8px;
+    }
+    header.top h1 {
+      margin: 0;
+      font-size: 1.6rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+    header.top .subtitle {
+      margin: 4px 0 0;
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+
+    .toolbar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      justify-content: flex-end;
+    }
+    .toolbar .last-check {
+      color: var(--muted);
+      font-size: 0.8rem;
+      white-space: nowrap;
+    }
+
+    button.refresh {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border: none;
+      border-radius: 8px;
+      background: var(--accent);
+      color: #fff;
+      font: inherit;
+      font-size: 0.85rem;
+      font-weight: 600;
+      padding: 7px 14px;
+      cursor: pointer;
+      transition: opacity 0.15s ease, transform 0.05s ease;
+    }
+    button.refresh:hover { opacity: 0.9; }
+    button.refresh:active { transform: scale(0.97); }
+    button.refresh:disabled { opacity: 0.55; cursor: default; }
+    button.refresh .spin {
+      display: inline-block;
+      width: 12px;
+      height: 12px;
+      border: 2px solid rgba(255, 255, 255, 0.4);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .providers { display: grid; gap: 16px; }
+
+    .provider-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 18px 20px;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+    }
+
+    .provider-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .provider-title { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .provider-name { font-weight: 700; font-size: 1.05rem; }
+
+    .provider-kind {
+      font-size: 0.7rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      border-radius: 999px;
+      padding: 2px 9px;
+    }
+    .provider-kind-local { color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+    .provider-kind-cloud { color: var(--warn); background: color-mix(in srgb, var(--warn) 14%, transparent); }
+
+    .provider-url,
+    .provider-default-model,
+    .provider-latency {
+      color: var(--muted);
+      font-size: 0.82rem;
+      margin-top: 4px;
+    }
+
+    .provider-status {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      margin-top: 14px;
+      font-weight: 600;
+      font-size: 0.95rem;
+    }
+    .status-dot {
+      width: 11px;
+      height: 11px;
+      border-radius: 50%;
+      flex: none;
+    }
+    .status-ok { background: var(--ok); box-shadow: 0 0 0 3px var(--ok-bg); }
+    .status-error { background: var(--err); box-shadow: 0 0 0 3px var(--err-bg); }
+    .status-checking { background: var(--checking); box-shadow: 0 0 0 3px color-mix(in srgb, var(--checking) 30%, transparent); animation: pulse 1s ease-in-out infinite; }
+    .status-unknown { background: var(--muted); }
+    .status-text.status-err { color: var(--err); }
+    .status-text.status-ok-c { color: var(--ok); }
+
+    @keyframes pulse { 50% { opacity: 0.45; } }
+
+    .provider-error {
+      margin-top: 10px;
+      color: var(--err);
+      background: var(--err-bg);
+      border-radius: 8px;
+      padding: 8px 12px;
+      font-size: 0.82rem;
+      word-break: break-word;
+      white-space: pre-wrap;
+    }
+
+    .models-section { margin-top: 16px; border-top: 1px solid var(--border); padding-top: 12px; }
+    .models-title {
+      margin: 0 0 8px;
+      font-size: 0.78rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--muted);
+    }
+    .models-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; }
+    .model-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      font-size: 0.88rem;
+      padding: 7px 10px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+    }
+    .model-name { font-weight: 500; }
+    .model-id { color: var(--muted); font-size: 0.75rem; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .models-empty { color: var(--muted); font-size: 0.85rem; }
+
+    footer.note {
+      margin-top: 28px;
+      color: var(--muted);
+      font-size: 0.78rem;
+      text-align: center;
+    }
+
+    .load-error {
+      background: var(--err-bg);
+      color: var(--err);
+      border-radius: 12px;
+      padding: 18px 20px;
+      font-size: 0.9rem;
+      border: 1px solid color-mix(in srgb, var(--err) 30%, transparent);
+      word-break: break-word;
+    }
   </style>
 </head>
 <body>
-  <h1 id="hello">Hello World</h1>
+  <main class="app">
+    <header class="top">
+      <div>
+        <h1>Hideout</h1>
+        <p class="subtitle">Local AI connection</p>
+      </div>
+      <div class="toolbar">
+        <span id="last-check" class="last-check"></span>
+        <button id="refresh-btn" class="refresh" type="button">
+          <span id="refresh-icon" class="spin" style="display: none"></span>
+          Check now
+        </button>
+      </div>
+    </header>
+
+    <div id="content" class="providers"><!-- provider cards injected here --></div>
+
+    <footer class="note">
+      Connection is checked locally against your AI provider. No data ever leaves your machine for local providers.
+    </footer>
+  </main>
   <!-- Renderer is untrusted: no Node integration, only contextBridge API -->
   <script type="module" src="./renderer.js"></script>
 </body>

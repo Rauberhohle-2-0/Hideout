@@ -15,7 +15,11 @@ const __dirname = path.dirname(__filename)
 const logger = new Logger({ prefix: 'main' })
 
 function getPreloadPath(): string {
-  // Compiled: dist/preload/preload.js (from dist/main/main.js => ../preload)
+  // Sandbox preload must be CommonJS (.cjs) — ESM import fails in sandbox_bundle with
+  // "Cannot use import statement outside a module". The build step generates preload.cjs from preload.ts
+  // via scripts/build-preload-cjs.mjs. Prefer .cjs if present, fallback to .js for dev.
+  const cjs = path.join(__dirname, '../preload/preload.cjs')
+  if (fs.existsSync(cjs)) return cjs
   return path.join(__dirname, '../preload/preload.js')
 }
 

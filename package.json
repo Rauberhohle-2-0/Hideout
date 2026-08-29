@@ -7,7 +7,7 @@
   "main": "dist/main/main.js",
   "scripts": {
     "start": "npm run build && electron .",
-    "build": "tsc && mkdir -p dist/renderer && cp src/renderer/index.html dist/renderer/index.html",
+    "build": "tsc && mkdir -p dist/renderer && cp src/renderer/index.html dist/renderer/index.html && node scripts/build-preload-cjs.mjs",
     "dev": "npm run build && electron .",
     "dev:watch": "tsc --watch",
     "test": "bun test",

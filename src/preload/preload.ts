@@ -1,5 +1,15 @@
 import { contextBridge, ipcRenderer } from "electron";
-import { IPC_CHANNELS, type Api } from "../shared/api.ts";
+import type { Api } from "../shared/api.ts";
+
+// Inlined to keep preload self-contained for sandbox CJS bundle (avoids ESM import of shared)
+const IPC_CHANNELS = {
+  HELLO_WORLD: "hello-world",
+  PING: "ping",
+  AI_LIST_PROVIDERS: "ai:list-providers",
+  AI_HEALTH: "ai:health",
+  AI_LIST_MODELS: "ai:list-models",
+  AI_CHAT: "ai:chat",
+} as const;
 
 // Minimal, validated IPC API - Renderer = untrusted
 // Never expose ipcRenderer directly, shell, fs, or Node access.
