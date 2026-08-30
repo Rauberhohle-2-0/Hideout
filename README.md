@@ -21,7 +21,7 @@ The interface holds no provider credentials. It mints a master key on first run,
 
 - **Vantail desktop app** using the platform webview (WKWebView, WebView2, WebKitGTK) with a strict content security policy and a build-time permission model in `vantail.config.ts`.
 - **Ollama integration** for local chat, streaming chat, health checks, and model discovery.
-- **MCP server management** for `stdio`, HTTP, and SSE transports, including add/edit/remove, enable/disable, health checks, connection state, and tool listing.
+- **MCP server management** for `stdio`, HTTP, and SSE transports, including add/edit/remove, enable/disable, health checks, real connection state, tool discovery, and tool execution.
 - **Exa MCP preset** seeded automatically as an optional web-search tool configuration (`npx -y exa-mcp-server`).
 - **Assistants** with reusable system instructions, model/provider preferences, and sampling parameters such as temperature, top-p, top-k, min-p, penalties, max tokens, stop sequences, and seed.
 - **Local Hono API** for health checks and AI, MCP, and assistant operations, served by the sidecar.
@@ -131,7 +131,7 @@ The sidecar is compiled into `public/` rather than straight into `dist/` because
 │   ├── ai/             AI provider types, registry, Ollama provider, and secure storage
 │   │   └── providers/  Concrete providers (Ollama)
 │   ├── assistants/     Assistant configuration types, validation, registry, and disk persistence
-│   ├── mcp/            MCP types, validation, registry, secure helpers, and connection manager
+│   ├── mcp/            MCP types, validation, registry, secure helpers, and the SDK-backed connection manager
 │   ├── renderer/       Interface: bootstrap (spawns the sidecar), API client, and UI
 │   ├── server/         The sidecar: entry point, Hono app, AI/MCP/assistant routes, PATH recovery
 │   ├── shared/         API contracts and cross-platform path helpers
@@ -171,7 +171,8 @@ All responses are JSON unless noted; writes are rate-limited to 60 requests per 
 - `GET /api/mcp/servers/:id/health` — checks an MCP server.
 - `POST /api/mcp/servers/:id/connect` — connects/checks an MCP server.
 - `POST /api/mcp/servers/:id/disconnect` — disconnects an MCP server.
-- `GET /api/mcp/servers/:id/tools` — lists known tools.
+- `GET /api/mcp/servers/:id/tools` — connects (if needed) and lists the server's exposed tools with their input schemas.
+- `POST /api/mcp/servers/:id/call` — calls a tool on a connected server (`{ name, arguments? }`).
 - `GET /api/mcp/presets/exa` — returns the seeded Exa preset (safe + raw).
 - `GET /api/assistants` — lists assistants.
 - `GET /api/assistants/:id` — gets one assistant.
@@ -208,7 +209,7 @@ command: npx
 args: -y exa-mcp-server
 ```
 
-This preset is displayed in the MCP section of the UI. Use **Check MCP** to verify that `npx` is available. The health check probes the launcher; it does not require you to put secrets in the project.
+This preset is displayed in the MCP section of the UI. Use **Check MCP** to connect to a server: it runs a real MCP handshake, lists the server's exposed tools, and lets you run each tool with JSON arguments from the UI. The health check probes the launcher; it does not require you to put secrets in the project.
 
 You can add MCP servers from the UI using:
 

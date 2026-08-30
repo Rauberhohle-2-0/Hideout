@@ -91,6 +91,25 @@ export interface McpTool {
   inputSchema?: unknown;
 }
 
+/** Arguments for calling a tool on a connected server. */
+export interface McpCallRequest {
+  name: string;
+  /** Tool arguments, serialized as a JSON object. Empty object allowed. */
+  arguments?: Record<string, unknown>;
+}
+
+/** Result of a tool call — text is flattened for the renderer; richer blocks stay raw. */
+export interface McpCallResult {
+  ok: boolean;
+  isError?: boolean;
+  /** Joined text content blocks (the common case). */
+  text?: string;
+  /** Raw content blocks for rich/unstructured results. */
+  content?: unknown;
+  /** Structured content when the server returns structuredContent. */
+  structuredContent?: Record<string, unknown>;
+}
+
 export interface McpServerInfo {
   config: McpServerSafe;
   status: McpServerStatus;

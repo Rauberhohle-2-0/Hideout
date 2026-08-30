@@ -79,6 +79,16 @@ function errorText(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
+function describeSchema(schema: unknown): string {
+  if (!schema || typeof schema !== "object") return "";
+  const s = schema as { properties?: Record<string, object>; required?: string[] };
+  if (!s.properties) return "";
+  const keys = Object.keys(s.properties);
+  if (keys.length === 0) return "";
+  const required = new Set(s.required ?? []);
+  return keys.map((k) => (required.has(k) ? k : `${k}?`)).join(", ");
+}
+
 function friendlyKind(kind: AiProviderInfo["kind"]): string {
   return kind === "local" ? "Local" : "Cloud";
 }
@@ -280,7 +290,7 @@ interface McpCard {
 
 function createMcpCard(server: McpServerSafe, onChanged: () => Promise<void>): McpCard {
   let health: McpHealthResult | null = null;
-  let tools: Array<{ name: string; description?: string }> | null = null;
+  let tools: Array<{ name: string; description?: string; inputSchema?: unknown }> | null = null;
   let busy = false;
 
   const card = el("section", "provider-card mcp-card");
@@ -432,12 +442,61 @@ function createMcpCard(server: McpServerSafe, onChanged: () => Promise<void>): M
     } else if (tools && tools.length > 0) {
       toolsTitle.textContent = `Tools (${tools.length})`;
       for (const t of tools) {
-        const li = el("li", "model-item");
-        li.append(el("span", "model-name", t.name));
-        if (t.description) li.append(el("span", "model-id", t.description));
-        else if (t.name) {
-          // keep layout consistent — no second span
-        }
+        const li = el("li", "model-item tool-item");
+        const head = el("div", "tool-head");
+        head.append(el("span", "model-name", t.name));
+        if (t.description) head.append(el("span", "model-id", t.description));
+        li.append(head);
+
+        const runBox = el("details", "tool-run");
+        const summary = el("summary", "tool-run-summary", "Run");
+        const argsLabel = el("label", "tool-arg-label", "Arguments (JSON)");
+        const argsText = el("textarea", "tool-args") as HTMLTextAreaElement;
+        argsText.rows = 3;
+        argsText.placeholder = '{}' + ' — e.g. {"query":"..."}';
+        const hintText = describeSchema(t.inputSchema);
+        const hint = el("div", "tool-hint", hintText ? `Params: ${hintText}` : "No required parameters.");
+        const go = el("button", "btn btn-primary btn-sm") as HTMLButtonElement;
+        go.type = "button";
+        go.textContent = "Execute";
+        const resultBox = el("pre", "tool-result");
+        resultBox.hidden = true;
+        runBox.append(summary, argsLabel, argsText, hint, go, resultBox);
+        li.append(runBox);
+
+        go.addEventListener("click", async () => {
+          let args: Record<string, unknown> | undefined;
+          const raw = argsText.value.trim();
+          if (raw) {
+            try {
+              args = JSON.parse(raw) as Record<string, unknown>;
+            } catch {
+              resultBox.classList.add("tool-result-error");
+              resultBox.textContent = "Invalid JSON arguments.";
+              resultBox.hidden = false;
+              return;
+            }
+          }
+          go.disabled = true;
+          go.textContent = "Running…";
+          try {
+            const res = await window.api.mcpCallTool(server.id, t.name, args);
+            resultBox.classList.remove("tool-result-error");
+            let payload: string;
+            if (res.text) payload = res.text;
+            else if (res.structuredContent !== undefined) payload = JSON.stringify(res.structuredContent, null, 2);
+            else if (res.content !== undefined) payload = JSON.stringify(res.content, null, 2);
+            else payload = "(empty result)";
+            resultBox.textContent = res.isError ? `Tool errored:\n${payload}` : payload;
+          } catch (e) {
+            resultBox.classList.add("tool-result-error");
+            resultBox.textContent = `Call failed: ${errorText(e)}`;
+          } finally {
+            resultBox.hidden = false;
+            go.disabled = false;
+            go.textContent = "Execute";
+          }
+        });
         toolsList.append(li);
       }
     } else {
@@ -480,7 +539,7 @@ function createMcpCard(server: McpServerSafe, onChanged: () => Promise<void>): M
       if (health.ok) {
         try {
           const raw = await window.api.mcpListTools(server.id);
-          tools = raw.map((t) => ({ name: t.name, description: t.description }));
+          tools = raw.map((t) => ({ name: t.name, description: t.description, inputSchema: t.inputSchema }));
         } catch (e) {
           // Tools listing failed but health is fine — keep the list empty rather
           // than turning a healthy status red.

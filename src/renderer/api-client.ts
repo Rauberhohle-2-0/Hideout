@@ -24,6 +24,7 @@ import type {
   McpAddServerRequest,
   McpServerSafe,
   McpServerStatus,
+  McpToolCallResult,
 } from "../shared/api.ts";
 
 export interface SidecarConnection {
@@ -162,6 +163,12 @@ export function createApiClient(connection: SidecarConnection): Api {
       );
       if (!Array.isArray(tools)) throw new Error("Invalid response");
       return tools;
+    },
+
+    async mcpCallTool(id: string, name: string, args?: Record<string, unknown>): Promise<McpToolCallResult> {
+      return call<McpToolCallResult>("POST", `/api/mcp/servers/${seg(id)}/call`, {
+        body: { name, arguments: args },
+      });
     },
 
     async mcpConnect(id: string): Promise<McpServerStatus> {

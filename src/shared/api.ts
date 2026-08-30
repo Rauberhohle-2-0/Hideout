@@ -107,6 +107,19 @@ export interface McpServerStatus {
   toolCount?: number;
 }
 
+export interface McpToolCallRequest {
+  name: string;
+  arguments?: Record<string, unknown>;
+}
+
+export interface McpToolCallResult {
+  ok: boolean;
+  isError?: boolean;
+  text?: string;
+  content?: unknown;
+  structuredContent?: Record<string, unknown>;
+}
+
 export interface McpAddServerRequest {
   id: string;
   name: string;
@@ -134,7 +147,8 @@ export interface Api {
   mcpUpdateServer(id: string, patch: Partial<McpAddServerRequest>): Promise<McpServerSafe>;
   mcpRemoveServer(id: string): Promise<{ ok: true }>;
   mcpHealth(id: string): Promise<{ ok: boolean; latencyMs?: number; error?: string; version?: string }>;
-  mcpListTools(id: string): Promise<Array<{ name: string; description?: string }>>;
+  mcpListTools(id: string): Promise<Array<{ name: string; description?: string; inputSchema?: unknown }>>;
+  mcpCallTool(id: string, name: string, args?: Record<string, unknown>): Promise<McpToolCallResult>;
   mcpConnect(id: string): Promise<McpServerStatus>;
   mcpDisconnect(id: string): Promise<{ ok: true }>;
   mcpSetEnabled(id: string, enabled: boolean): Promise<McpServerSafe>;

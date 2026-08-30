@@ -4,16 +4,18 @@
  * For STDIO: validates command exists, can spawn child_process with timeout and env from SecureStore.
  * For HTTP/SSE: performs fetch with headers + timeoutSeconds.
  *
- * NOTE: Full JSON-RPC MCP handshake (via @modelcontextprotocol/sdk) is supported as an optional
- * enhancement. This manager provides transport-level health checks and secret-hydrated configs
- * without requiring the SDK. If the SDK is installed, `connect()` will attempt a real MCP
- * Client handshake; otherwise health checks are transport-only (still useful for Exa testing).
  */
 
 import { spawn } from "node:child_process";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StdioClientTransport, getDefaultEnvironment } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
+import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
+import type { ContentBlock } from "@modelcontextprotocol/sdk/types.js";
 import { Logger } from "../logger.ts";
 import { McpError } from "./errors.ts";
-import type { McpServerConfig, McpServerStatus, McpTool } from "./types.ts";
+import type { McpCallResult, McpServerConfig, McpServerStatus, McpTool } from "./types.ts";
 import { McpRegistry, getDefaultMcpRegistry } from "./registry.ts";
 
 const logger = new Logger({ prefix: "mcp-manager" });
@@ -29,6 +31,9 @@ export class McpManager {
   private registry: McpRegistry;
   private statuses = new Map<string, McpServerStatus>();
   private toolsCache = new Map<string, McpTool[]>();
+
+  /** Live, connected MCP sessions keyed by server id. */
+  private sessions = new Map<string, { client: Client; transport: Transport }>();
 
   constructor(registry?: McpRegistry) {
     this.registry = registry ?? getDefaultMcpRegistry();
@@ -185,25 +190,18 @@ export class McpManager {
     }
   }
 
-  /** List tools — if connected via SDK, returns cached; otherwise empty for now */
+  /** List tools for a server, connecting first if no live session exists yet. */
   async listTools(id: string): Promise<McpTool[]> {
-    // In a full SDK integration, this would call client.listTools()
-    // For now, return cached or try health as proxy
-    if (this.toolsCache.has(id)) return this.toolsCache.get(id)!;
-    const health = await this.healthCheck(id);
-    if (!health.ok) throw new McpError(`Cannot list tools: ${health.error}`, "NOT_CONNECTED");
-    // No SDK — return empty but ok (caller can treat as 0 tools until SDK wired)
-    // For Exa, we can return known tools as documentation
-    const config = await this.registry.getHydrated(id);
-    if (config?.id === "exa" || config?.id.startsWith("exa")) {
-      const exaTools: McpTool[] = [
-        { name: "web_search_exa", description: "Real-time web search via Exa.ai" },
-        { name: "get_code_context_exa", description: "Get code context via Exa" },
-      ];
-      this.toolsCache.set(id, exaTools);
-      return exaTools;
+    const cached = this.toolsCache.get(id);
+    if (cached) return cached;
+    const session = this.sessions.get(id);
+    if (session) {
+      const tools = await this.listToolsForClient(session.client, 60_000);
+      this.toolsCache.set(id, tools);
+      return tools;
     }
-    return [];
+    await this.connect(id);
+    return this.toolsCache.get(id) ?? [];
   }
 
   getStatus(id: string): McpServerStatus | undefined {
@@ -214,27 +212,207 @@ export class McpManager {
     this.statuses.set(id, status);
   }
 
+  /**
+   * Establish a real MCP session (initialize/initialized handshake) and cache
+   * the server's tools. This is what actually makes an added server's tools
+   * available, unlike the transport-only health probe below.
+   */
   async connect(id: string): Promise<McpServerStatus> {
-    const health = await this.healthCheck(id);
     const config = await this.registry.getHydrated(id);
-    const status: McpServerStatus = {
-      id,
-      connected: health.ok,
-      transport: config?.transport ?? "stdio",
-      ...(health.error ? { error: health.error } : {}),
-      ...(health.latencyMs !== undefined ? { latencyMs: health.latencyMs } : {}),
-      ...(health.ok ? { lastConnectedAt: new Date().toISOString() } : {}),
-    };
-    this.statuses.set(id, status);
-    if (health.ok) logger.info(`MCP connected: ${id}`);
-    else logger.warn(`MCP connect failed ${id}: ${health.error}`);
-    return status;
+    if (!config) throw new McpError(`MCP server not found: ${id}`, "NOT_FOUND");
+    if (config.enabled === false) {
+      const status: McpServerStatus = { id, connected: false, transport: config.transport, error: "Server disabled" };
+      this.statuses.set(id, status);
+      return status;
+    }
+
+    await this.closeSession(id);
+
+    const timeoutMs = this.transportTimeout(config);
+    const client = new Client({ name: "hideout", version: "1.0.0" }, { capabilities: {} });
+    const transport = this.buildTransport(config);
+    const session = { client, transport };
+    this.sessions.set(id, session);
+
+    try {
+      await this.withTimeout(client.connect(transport), timeoutMs);
+      await this.withTimeout(client.notification({ method: "notifications/initialized" }), timeoutMs);
+      const tools = await this.listToolsForClient(client, timeoutMs);
+      this.toolsCache.set(id, tools);
+      const status: McpServerStatus = {
+        id,
+        connected: true,
+        transport: config.transport,
+        lastConnectedAt: new Date().toISOString(),
+        toolCount: tools.length,
+      };
+      this.statuses.set(id, status);
+      logger.info(`MCP connected: ${id} (${tools.length} tools)`);
+      return status;
+    } catch (err) {
+      await this.closeSession(id);
+      const status: McpServerStatus = { id, connected: false, transport: config.transport, error: this.errorMessage(err) };
+      this.statuses.set(id, status);
+      logger.warn(`MCP connect failed ${id}: ${this.errorMessage(err)}`);
+      return status;
+    }
   }
 
   async disconnect(id: string): Promise<void> {
+    await this.closeSession(id);
     this.statuses.delete(id);
-    this.toolsCache.delete(id);
     logger.info(`MCP disconnected: ${id}`);
+  }
+
+  /** Call a named tool on a connected server, connecting first if needed. */
+  async callTool(
+    id: string,
+    name: string,
+    args?: Record<string, unknown>,
+    signal?: AbortSignal,
+  ): Promise<McpCallResult> {
+    let session = this.sessions.get(id);
+    if (!session) {
+      const status = await this.connect(id);
+      if (!status.connected) {
+        throw new McpError(`Not connected to ${id}: ${status.error ?? "unknown error"}`, "NOT_CONNECTED");
+      }
+      session = this.sessions.get(id);
+    }
+    if (!session) throw new McpError(`Not connected: ${id}`, "NOT_CONNECTED");
+
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    if (!signal) timer = setTimeout(() => controller.abort(), 120_000);
+    if (signal) {
+      if (signal.aborted) controller.abort(signal.reason);
+      else signal.addEventListener("abort", () => controller.abort(signal.reason), { once: true });
+    }
+
+    try {
+      const result = (await session.client.callTool(
+        { name, arguments: args },
+        undefined,
+        { signal: controller.signal },
+      )) as unknown as CallToolRaw;
+      const hasToolResult = result.toolResult !== undefined;
+      const text = extractText(result.content);
+      return {
+        ok: hasToolResult ? true : !result.isError,
+        text,
+        content: hasToolResult ? result.toolResult : result.content,
+        structuredContent: hasToolResult ? undefined : (result.structuredContent as Record<string, unknown> | undefined),
+        isError: hasToolResult ? false : result.isError,
+      };
+    } catch (err) {
+      if ((err as Error).name === "AbortError") {
+        throw new McpError(`Tool call aborted (timed out after 120s): ${name}`, "TIMEOUT", err);
+      }
+      throw this.asMcpError(err);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
+  /** List tools from a live client if the server advertises the tools capability. */
+  private async listToolsForClient(
+    client: Client,
+    timeoutMs: number,
+  ): Promise<McpTool[]> {
+    const caps = client.getServerCapabilities();
+    if (!caps?.tools) return [];
+    try {
+      const { tools } = await this.withTimeout(client.listTools(), timeoutMs);
+      return tools.map((t) => ({ name: t.name, description: t.description, inputSchema: t.inputSchema }));
+    } catch (err) {
+      // Tools capability is advertised but the call failed — surface the error rather
+      // than silently pretending there are none.
+      throw this.asMcpError(err);
+    }
+  }
+
+  /** Build the SDK transport matching the server's transport type. */
+  private buildTransport(config: McpServerConfig): Transport {
+    if (config.transport === "stdio") {
+      const stdio = config.stdio!;
+      return new StdioClientTransport({
+        command: stdio.command,
+        args: stdio.args,
+        env: { ...getDefaultEnvironment(), ...(stdio.env ?? {}) },
+        cwd: stdio.cwd,
+      });
+    }
+
+    const http = config.http ?? config.sse!;
+    const url = new URL(http.url);
+    const headers: Record<string, string> = {};
+    if (http.headers) {
+      for (const [k, v] of Object.entries(http.headers)) {
+        if (typeof v === "string" && v.length > 0) headers[k] = v;
+      }
+    }
+    const requestInit: RequestInit = { headers };
+
+    if (config.transport === "sse") {
+      return new SSEClientTransport(url, { requestInit });
+    }
+    return new StreamableHTTPClientTransport(url, { requestInit });
+  }
+
+  /** Tear down a live session (if any) and clear its cached tools. */
+  private async closeSession(id: string): Promise<void> {
+    const session = this.sessions.get(id);
+    this.sessions.delete(id);
+    this.toolsCache.delete(id);
+    if (session) {
+      try {
+        await session.client.close();
+      } catch (err) {
+        logger.debug(`Error closing MCP session ${id}: ${(err as Error).message}`);
+      }
+    }
+  }
+
+  /** A sane connect/list timeout per transport. */
+  private transportTimeout(config: McpServerConfig): number {
+    const http = config.http ?? config.sse;
+    if (http?.timeoutSeconds) return http.timeoutSeconds * 1000;
+    return 15_000;
+  }
+
+  /** Race a promise against a timeout, rejecting with an McpError on expiry. */
+  private async withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new McpError(`MCP request timed out after ${ms}ms`, "TIMEOUT")), ms);
+    });
+    try {
+      return await Promise.race([promise, timeout]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
+  private errorMessage(err: unknown): string {
+    if (err instanceof McpError) return err.message;
+    return err instanceof Error ? err.message : String(err);
+  }
+
+  private asMcpError(err: unknown): McpError {
+    if (err instanceof McpError) return err;
+    const msg = err instanceof Error ? err.message : String(err);
+    // SDK wraps protocol/server errors; map verification-type failures precisely.
+    const lower = msg.toLowerCase();
+    if (lower.includes("not connected") || lower.includes("no transport")) {
+      return new McpError(msg, "NOT_CONNECTED", err);
+    }
+    if (lower.includes("invalid param") || lower.includes("method not found") || lower.includes("tool")) {
+      return new McpError(msg, "VALIDATION_ERROR", err);
+    }
+    if (lower.includes("unauthor") || lower.includes("forbidden")) {
+      return new McpError(msg, "AUTH_FAILED", err);
+    }
+    return new McpError(msg, "CONNECTION_FAILED", err);
   }
 
   async setEnabled(id: string, enabled: boolean): Promise<import("./types.ts").McpServerSafe> {
@@ -244,6 +422,36 @@ export class McpManager {
     }
     return safe;
   }
+}
+
+/** Relaxed view of the SDK callTool() result (its union + toolResult variant). */
+interface CallToolRaw {
+  content?: ContentBlock[];
+  structuredContent?: unknown;
+  isError?: boolean;
+  toolResult?: unknown;
+}
+
+/**
+ * Flatten an MCP tool result into plain text for the renderer. Text blocks are
+ * joined with newlines; any non-text block is JSON-serialized inline so nothing
+ * is silently dropped.
+ */
+function extractText(content: ContentBlock[] | undefined): string | undefined {
+  if (!content || content.length === 0) return undefined;
+  const parts = content.map((block) => {
+    if (block.type === "text") return block.text;
+    if (block.type === "resource" && block.resource && "text" in block.resource) {
+      return block.resource.text;
+    }
+    try {
+      return JSON.stringify(block);
+    } catch {
+      return String(block);
+    }
+  });
+  const joined = parts.join("\n");
+  return joined.length > 0 ? joined : undefined;
 }
 
 let defaultManager: McpManager | null = null;

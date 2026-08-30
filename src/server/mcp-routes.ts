@@ -6,6 +6,7 @@ import { createRateLimiter } from "./rate-limit.ts";
 import {
   enabledToggleValidator,
   jsonObjectValidator,
+  mcpCallValidator,
   mcpServerValidator,
   parseBody,
   rejectInvalid,
@@ -216,6 +217,29 @@ mcpRoutes.get("/servers/:id/tools", async (c) => {
   try {
     const tools = await manager.listTools(id);
     return c.json({ serverId: id, tools });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    const code = err instanceof McpError ? err.code : "UPSTREAM_ERROR";
+    return c.json({ error: msg, code }, code === "NOT_CONNECTED" ? 502 : 500);
+  }
+});
+
+// POST /api/mcp/servers/:id/call — call a tool on a connected server
+mcpRoutes.post("/servers/:id/call", async (c) => {
+  const limited = rateLimit(c);
+  if (limited) return limited;
+
+  const id = c.req.param("id");
+  const registry = getRegistry();
+  if (!registry.getSafe(id)) return c.json({ error: `MCP server not found: ${id}` }, 404);
+
+  const call = await parseBody(c, mcpCallValidator);
+  if (call instanceof Response) return call;
+
+  const manager = getManager();
+  try {
+    const result = await manager.callTool(id, call.name, call.arguments);
+    return c.json({ serverId: id, name: call.name, result });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     const code = err instanceof McpError ? err.code : "UPSTREAM_ERROR";
