@@ -4,10 +4,15 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Hideout · AI Connection</title>
-  <!-- Strict CSP: no unsafe-eval; connect-src allows local Hono (127.0.0.1) for AI API -->
+  <!--
+    Strict CSP, no unsafe-eval. The page itself never makes a network request:
+    calls to the sidecar go through the runtime's HTTP client over the webview
+    IPC bridge, not through fetch. `connect-src` is therefore only here for the
+    Vite dev server's HMR socket, and is unused in a packaged build.
+  -->
   <meta
     http-equiv="Content-Security-Policy"
-    content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' http://127.0.0.1:* http://localhost:*; base-uri 'none'; form-action 'none';"
+    content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws://localhost:* ws://127.0.0.1:* http://localhost:* http://127.0.0.1:*; base-uri 'none'; form-action 'none';"
   />
   <style>
     :root {
@@ -626,7 +631,7 @@
       </div>
     </form>
   </dialog>
-  <!-- Renderer is untrusted: no Node integration, only contextBridge API -->
-  <script type="module" src="./renderer.js"></script>
+  <!-- Boots the sidecar, installs the API client, then starts the interface. -->
+  <script type="module" src="/src/renderer/main.ts"></script>
 </body>
 </html>

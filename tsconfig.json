@@ -12,11 +12,7 @@
     "allowSyntheticDefaultImports": true,
     "allowImportingTsExtensions": true,
     "rewriteRelativeImportExtensions": true,
-    "declaration": true,
-    "declarationMap": true,
-    "sourceMap": true,
-    "outDir": "dist",
-    "rootDir": "src",
+    "noEmit": true,
     "noFallthroughCasesInSwitch": true,
     "noUnusedLocals": false,
     "noUnusedParameters": false,
@@ -24,6 +20,6 @@
     "noImplicitReturns": true,
     "noUncheckedIndexedAccess": true
   },
-  "include": ["src/**/*"],
+  "include": ["src/**/*", "vantail.config.ts"],
   "exclude": ["node_modules", "dist", "test", "coverage"]
 }

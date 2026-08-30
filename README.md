@@ -1,24 +1,39 @@
 # Hideout
 
-Hideout is a local-first desktop application for connecting an AI client to local AI providers, Model Context Protocol (MCP) servers, and configurable assistants. It is built with Electron and TypeScript, uses Ollama as the included AI provider, and embeds a localhost-only Hono HTTP API.
+Hideout is a local-first desktop application for connecting an AI client to local AI providers, Model Context Protocol (MCP) servers, and configurable assistants. It is built with [Vantail](https://github.com/Vantail/vantail) and TypeScript, uses Ollama as the included AI provider, and runs its Hono HTTP API in a separate local backend process.
+
+## Architecture
+
+The application is two processes:
+
+```text
+Vantail runtime (Rust, ~4 MB) — native window + platform webview
+  └── webview: the interface, using @vantail/api
+        │  spawns at startup, over the webview IPC bridge
+        ↓
+  Sidecar: a single Bun-compiled binary — Hono + AI/MCP/assistant registries
+        └── spawns MCP stdio servers, reads and writes the data directory
+```
+
+The interface holds no provider credentials. It mints a master key on first run, keeps it in the OS keychain, and hands it to the sidecar at spawn time; every secret is encrypted and read on the sidecar side of that boundary. The sidecar listens on `127.0.0.1` on an OS-assigned port and requires a per-launch bearer token on every request, so no other process on the machine can reach it.
 
 ## Features
 
-- **Electron desktop app** with a sandboxed renderer, context isolation, disabled Node integration, strict content security policy, and blocked untrusted navigation.
+- **Vantail desktop app** using the platform webview (WKWebView, WebView2, WebKitGTK) with a strict content security policy and a build-time permission model in `vantail.config.ts`.
 - **Ollama integration** for local chat, streaming chat, health checks, and model discovery.
 - **MCP server management** for `stdio`, HTTP, and SSE transports, including add/edit/remove, enable/disable, health checks, connection state, and tool listing.
 - **Exa MCP preset** seeded automatically as an optional web-search tool configuration (`npx -y exa-mcp-server`).
 - **Assistants** with reusable system instructions, model/provider preferences, and sampling parameters such as temperature, top-p, top-k, min-p, penalties, max tokens, stop sequences, and seed.
-- **Local Hono API** for health checks and AI, MCP, and assistant operations.
-- **Secure secret handling**: secrets are kept in the Electron main process and stored using Electron `safeStorage` when available. Secrets are redacted from renderer/API responses and logs.
+- **Local Hono API** for health checks and AI, MCP, and assistant operations, served by the sidecar.
+- **Secure secret handling**: secrets are encrypted at rest with AES-256-GCM under a master key held in the OS keychain (Keychain on macOS, Credential Manager on Windows, Secret Service on Linux). They are redacted from API responses and logs, and never reach the interface.
 - **Colored logging** with configurable log levels.
-- **Loopback-first networking**: the Hono server defaults to `127.0.0.1`, and the built-in Ollama provider defaults to the local Ollama endpoint.
+- **Loopback-first networking**: the sidecar binds `127.0.0.1`, and the built-in Ollama provider defaults to the local Ollama endpoint.
 
 ## Requirements
 
 - **Node.js** with npm. Node.js 20 or newer is recommended.
-- **Bun** for the test suite (`bun test`). Install Bun from <https://bun.sh> if it is not already installed.
-- A desktop environment supported by Electron.
+- **Bun** is installed automatically as a devDependency and pinned to 1.4 or newer. It compiles the sidecar and runs the test suite. A much older global Bun will not work: Bun 1.0.x mis-handles Hono's JSON responses.
+- A desktop environment with the platform webview available. No Chromium is bundled.
 - **Ollama** is optional for launching the UI, but required to use the included AI provider. Install it from <https://ollama.com>.
 - **npx** is required if you want to use the seeded Exa MCP server or another npm-based `stdio` MCP server.
 
@@ -66,77 +81,65 @@ Then set, for example:
 OLLAMA_BASE_URL=http://127.0.0.1:11434
 ```
 
-The application does not automatically load `.env` files. Export variables in the shell that launches Electron, or use your shell’s environment-file support. For example:
+The application does not automatically load `.env` files. Export variables in the shell that launches the app:
 
 ```bash
-OLLAMA_BASE_URL=http://127.0.0.1:11434 npm start
+OLLAMA_BASE_URL=http://127.0.0.1:11434 npm run dev
 ```
+
+Note that this only reaches the sidecar when the app is launched from a shell. A packaged app started from Finder or the Start menu does not inherit your shell environment; use the in-app configuration instead.
 
 ## Start the application
-
-Build the TypeScript sources and launch Electron:
-
-```bash
-npm start
-```
-
-`npm start` runs the build first, copies the renderer HTML into `dist`, generates the CommonJS sandbox preload, and then starts Electron.
-
-The equivalent development command is:
 
 ```bash
 npm run dev
 ```
 
-At runtime, the app starts the Hono server when the window is ready. It listens on `127.0.0.1:3000` by default. To select another local port:
+This compiles the sidecar, builds the web assets, and launches the Vantail runtime against the Vite dev server, with hot module replacement and devtools enabled.
+
+To build and run a distributable bundle:
 
 ```bash
-HONO_PORT=3001 npm start
+npm run package
 ```
 
-To explicitly choose the bind address, set `HONO_HOSTNAME`; keeping it at `127.0.0.1` is recommended:
+The bundle is written to `build/<platform>/`. On macOS it is signed ad-hoc, which is enough to launch on the machine that built it; shipping to other people needs a Developer ID identity passed to `vantail package --sign`.
 
-```bash
-HONO_HOSTNAME=127.0.0.1 HONO_PORT=3001 npm start
-```
-
-To open Chromium DevTools while developing:
-
-```bash
-ELECTRON_OPEN_DEVTOOLS=1 NODE_ENV=development npm start
-```
+There is no port or hostname to configure. The sidecar takes an OS-assigned port on `127.0.0.1` and reports it to the interface, so two launches never collide and nothing else on the machine can guess where to find it.
 
 ## Available scripts
 
 | Command | Purpose |
 | --- | --- |
-| `npm start` | Build the project and launch the Electron application. |
-| `npm run dev` | Build and launch Electron; currently equivalent to `npm start`. |
-| `npm run build` | Typecheck/compile TypeScript, copy the renderer HTML, and generate the sandbox preload bundle. |
+| `npm run dev` | Compile the sidecar, build assets, and launch the app against the Vite dev server. |
+| `npm run build` | Compile the sidecar and build the web assets into `dist/`. |
+| `npm run build:sidecar` | Compile only the backend binary into `public/bin/`. |
+| `npm run package` | Build and produce a native bundle in `build/`. |
+| `npm run doctor` | Report the resolved Vantail toolchain, config, and runtime. |
 | `npm run typecheck` | Run TypeScript checking without emitting build files. |
-| `npm run dev:watch` | Run TypeScript in watch mode (recompile on change; relaunch Electron manually). |
 | `npm test` | Run the Bun test suite. |
+
+The sidecar is compiled into `public/` rather than straight into `dist/` because `vantail build` and `vantail package` each run Vite themselves, which empties `dist/` first. Staging it in `public/` means every build path copies it in, with its executable bit intact.
 
 ## Project layout
 
 ```text
 .
+├── index.html          Interface entry document (Vite root)
+├── vantail.config.ts   Window, app identity, and the runtime permission model
 ├── src/
 │   ├── ai/             AI provider types, registry, Ollama provider, and secure storage
 │   │   └── providers/  Concrete providers (Ollama)
 │   ├── assistants/     Assistant configuration types, validation, registry, and disk persistence
-│   ├── main/           Electron main-process lifecycle, window creation, and IPC handlers
 │   ├── mcp/            MCP types, validation, registry, secure helpers, and connection manager
-│   ├── preload/        Context-bridge API exposed to the renderer (sandbox-safe, CJS-built)
-│   ├── renderer/       Desktop UI HTML and renderer TypeScript (AI / MCP / Assistant cards + dialogs)
-│   ├── server/         Hono app, AI/MCP/Assistant routes, and localhost server lifecycle
-│   ├── shared/         IPC channels, API contracts, and cross-platform path helpers
+│   ├── renderer/       Interface: bootstrap (spawns the sidecar), API client, and UI
+│   ├── server/         The sidecar: entry point, Hono app, AI/MCP/assistant routes, PATH recovery
+│   ├── shared/         API contracts and cross-platform path helpers
 │   ├── index.ts        Small Hello World entry point used by the unit test
 │   └── logger.ts       Configurable colored logger with redaction
-├── scripts/
-│   └── build-preload-cjs.mjs  Converts the compiled ESM preload to sandbox-compatible CommonJS
+├── public/bin/         Compiled sidecar binary (generated, git-ignored)
 ├── test/               Bun tests (Bun test runner)
-├── package.json        Scripts and dependencies (type: module, Electron 44, Hono 4)
+├── package.json        Scripts and dependencies (type: module, Vantail, Hono 4)
 ├── tsconfig.json       Strict TypeScript configuration (ESNext, bundler resolution)
 ├── bunfig.toml         Bun test configuration
 └── .env.example        Environment variable reference (loopback defaults)
@@ -144,7 +147,9 @@ ELECTRON_OPEN_DEVTOOLS=1 NODE_ENV=development npm start
 
 ## Local HTTP API
 
-The embedded Hono server is local-only by default. Once the app is running, these endpoints are available at `http://127.0.0.1:3000` (all JSON unless noted; writes are rate-limited to 60 req/min per IP):
+The sidecar's API is not a general-purpose local service. It listens on an OS-assigned port on `127.0.0.1` and rejects any request without the per-launch bearer token, which exists only in memory for the lifetime of the app. It is documented here because it is the contract the interface uses; reaching it from outside the app is not a supported workflow.
+
+All responses are JSON unless noted; writes are rate-limited to 60 requests per minute per client.
 
 - `GET /` — returns `Hello World` as plain text.
 - `GET /health` — returns a JSON health response.
@@ -180,17 +185,19 @@ The embedded Hono server is local-only by default. Once the app is running, thes
 
 For complete request and response shapes, see the route files in `src/server/` and the shared contracts in `src/shared/api.ts`.
 
-Example health check:
+To exercise the API directly during development, run the sidecar yourself. It prints its port on stdout as `HIDEOUT_READY {"port":…}`:
 
 ```bash
-curl http://127.0.0.1:3000/health
+HIDEOUT_AUTH_TOKEN=dev-token \
+HIDEOUT_MASTER_KEY="$(head -c 32 /dev/urandom | base64)" \
+./public/bin/hideout-server
 ```
-
-Example Ollama model check:
 
 ```bash
-curl http://127.0.0.1:3000/api/ai/providers/ollama/models
+curl -H "Authorization: Bearer dev-token" http://127.0.0.1:<port>/api/ai/providers/ollama/models
 ```
+
+Using a throwaway master key means the run will not decrypt secrets written under your real one.
 
 ## MCP setup
 
@@ -209,7 +216,9 @@ You can add MCP servers from the UI using:
 - **http** — an HTTP MCP endpoint and optional timeout/headers.
 - **sse** — an SSE-compatible endpoint using the same URL configuration shape.
 
-Secret-looking environment values and header values are stored through the secure store rather than returned to the renderer. Never commit API keys or other credentials to `.env`, source files, or JSON configuration.
+Secret-looking environment values and header values are stored through the secure store rather than returned to the interface. Never commit API keys or other credentials to `.env`, source files, or JSON configuration.
+
+Because a packaged desktop app does not inherit a shell environment, the sidecar recovers your login shell's `PATH` at startup (see `src/server/user-path.ts`). Without that, tools installed by a version manager — nvm in particular, whose directory contains the exact Node version — would not be found and every stdio server would fail with `ENOENT`.
 
 ## Assistant setup
 
@@ -229,29 +238,32 @@ Copy `.env.example` to review the available settings. The main options are:
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `HONO_PORT` | `3000` | Local Hono server port. `PORT` is accepted as a fallback. |
-| `HONO_HOSTNAME` | `127.0.0.1` | Hono bind hostname (keep at loopback). |
 | `OLLAMA_BASE_URL` | `http://127.0.0.1:11434` | Ollama endpoint. `AI_OLLAMA_BASE_URL` is also accepted. |
-| `HIDEOUT_SECRET_AI_OLLAMA_APIKEY` | unset | Ephemeral dev API key for a proxied Ollama endpoint; prefer the OS keychain/secure store. |
+| `HIDEOUT_SECRET_AI_OLLAMA_APIKEY` | unset | Ephemeral dev API key for a proxied Ollama endpoint; prefer the secure store. |
 | `HIDEOUT_SECRET_MCP_*` | unset | Ephemeral dev overrides for MCP secrets (`HIDEOUT_SECRET_MCP_<ID>_ENV_<VAR>` / `HEADER_<NAME>`); not persisted. |
 | `HIDEOUT_MCP_STORE_DIR` | platform data directory | Override MCP storage dir for tests/portable use. Falls back to `HIDEOUT_SECURE_STORE_DIR` if set. |
 | `HIDEOUT_SECURE_STORE_DIR` | platform data directory | Override secure-storage dir for tests/portable use. |
 | `HIDEOUT_ASSISTANT_STORE_DIR` | platform data directory | Override assistant storage dir. Falls back to `HIDEOUT_MCP_STORE_DIR` / `HIDEOUT_SECURE_STORE_DIR`. |
 | `LOG_LEVEL` | `INFO` (defaults to `DEBUG` when unset — see `src/logger.ts:58`) | `DEBUG`, `INFO`, `WARN`, `ERROR`, or `SILENT`. |
 | `NO_COLOR` | unset | Set to any value to disable colored logs. `FORCE_COLOR=1` forces color. |
-| `ELECTRON_OPEN_DEVTOOLS` | unset | Set to `1` (with `NODE_ENV != production`) to open Chromium DevTools. |
+
+`HIDEOUT_AUTH_TOKEN` and `HIDEOUT_MASTER_KEY` are generated by the app and passed to the sidecar at spawn time. Set them by hand only when running the sidecar directly for development.
 
 ## Data and security
 
-Runtime data is stored in the platform’s application-data directory. Electron uses its `userData` path for the desktop app; outside Electron, platform-specific Hideout directories are used. Assistant and MCP configuration files are protected with restrictive permissions where supported.
+Runtime data is stored in the platform's application-data directory. These are the same locations the Electron build used, so an existing installation keeps its servers and assistants:
 
 - macOS: `~/Library/Application Support/Hideout/`
 - Windows: `%APPDATA%/Hideout/`
 - Linux: `$XDG_CONFIG_HOME/hideout/` or `~/.config/hideout/`
 
-Do not delete these files while the app is running. Removing them resets locally stored MCP and assistant configuration. Secure-store contents may be encrypted using Electron’s OS-backed `safeStorage` facility.
+Do not delete these files while the app is running. Removing them resets locally stored MCP and assistant configuration. Secure-store contents are encrypted with AES-256-GCM; the key is held in the OS keychain and never written next to the data it protects. A tampered store fails to decrypt rather than returning altered values.
 
-The application is intended for local use. Keep Hono bound to loopback unless you have a specific, controlled networking requirement and understand the security implications.
+The application is intended for local use. The sidecar is bound to loopback and token-authenticated; it is not designed to be exposed on a network.
+
+### Upgrading from the Electron build
+
+Servers, assistants, and other configuration carry over untouched. Stored **API keys do not**: they were encrypted with Electron's `safeStorage`, which cannot be decrypted without Electron. Re-enter them once from the UI and they will be re-encrypted under the new key.
 
 ## Development and verification
 
@@ -263,19 +275,19 @@ npm test
 npm run build
 ```
 
-The tests are run by Bun and currently cover the logger and the Hello World entry point. The build output is written to `dist/`, which is ignored by Git.
+The tests are run by Bun and currently cover the logger and the Hello World entry point. Build output is written to `dist/` and `build/`, both ignored by Git.
 
 ## Troubleshooting
 
-### Electron does not start
+### The app window is blank, or reports that the backend did not start
 
-Run the build separately and inspect its output:
+The interface reports sidecar failures at the top of the window. Check that the binary exists:
 
 ```bash
-npm run build
+npm run build:sidecar
 ```
 
-Make sure dependencies are installed and that you are running the command from the project root.
+Sidecar logs are forwarded to the webview console, which `npm run dev` opens by default.
 
 ### Ollama is unhealthy
 
@@ -287,30 +299,28 @@ curl http://127.0.0.1:11434/api/tags
 
 If needed, pull a model with `ollama pull llama3.2` or set `OLLAMA_BASE_URL` to the correct loopback endpoint.
 
-### Port 3000 is already in use
+### Exa or another stdio MCP server reports "Command not found"
 
-Start Hideout on another port:
-
-```bash
-HONO_PORT=3001 npm start
-```
-
-### Exa or another stdio MCP server cannot be checked
-
-Confirm the launcher exists:
+Confirm the launcher exists in your own shell:
 
 ```bash
 npx --version
 ```
 
-For other servers, verify the configured command, arguments, and working directory. Hideout launches stdio commands without a shell, so shell-specific command strings and shell operators are not supported.
+The sidecar resolves your login shell's `PATH` at startup, so a tool available in your terminal should be available to a packaged app too. If it is not, check that the command is on the `PATH` your login shell sets, rather than one exported by a single terminal session.
+
+Hideout launches stdio commands without a shell, so shell-specific command strings and shell operators are not supported.
+
+### macOS asks for your keychain password on every build
+
+An ad-hoc signature changes on each build, and the keychain binds access to the signing identity. Packaging with a stable Developer ID identity makes it a one-time approval.
 
 ### Logs are too noisy or have unwanted colors
 
 Use the logger environment variables:
 
 ```bash
-LOG_LEVEL=WARN NO_COLOR=1 npm start
+LOG_LEVEL=WARN NO_COLOR=1 npm run dev
 ```
 
 ## License
