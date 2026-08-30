@@ -65,8 +65,6 @@ export function validateBaseUrl(
   if (!opts?.allowRemote && !isLoopbackUrl(baseUrl)) {
     errors.push(`Local provider baseUrl must be loopback (127.0.0.1/localhost): ${baseUrl}`);
   }
-  // Prevent obvious SSRF: no query/fragment needed for baseUrl
-  // (not an error, just normalized)
   return errors;
 }
 

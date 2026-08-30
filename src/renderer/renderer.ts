@@ -492,12 +492,7 @@ function createMcpCard(server: McpServerSafe, onChanged: () => Promise<void>): M
     const nextEnabled = server.enabled === false ? true : false;
     toggleBtn.disabled = true;
     try {
-      if (window.api.mcpSetEnabled) {
-        await window.api.mcpSetEnabled(server.id, nextEnabled);
-      } else {
-        // fallback for old preload: use patch
-        await window.api.mcpUpdateServer(server.id, { enabled: nextEnabled } as never);
-      }
+      await window.api.mcpSetEnabled(server.id, nextEnabled);
       await onChanged();
     } catch (e) {
       alert(`Failed to ${nextEnabled ? "enable" : "disable"}: ${errorText(e)}`);

@@ -120,8 +120,9 @@ function ensureDir(): void {
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   try {
     fs.chmodSync(dir, 0o700);
-  } catch {
-    // Windows ignores chmod
+  } catch (err) {
+    // Windows ignores chmod; anything else is worth knowing about.
+    logger.debug(`chmod failed on ${dir}: ${(err as Error).message}`);
   }
 }
 

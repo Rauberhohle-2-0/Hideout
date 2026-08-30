@@ -59,12 +59,17 @@ function ensureAssistantsDir(): void {
   fs.mkdirSync(base, { recursive: true, mode: 0o700 });
   try {
     fs.chmodSync(base, 0o700);
-  } catch {}
+  } catch (err) {
+    // Windows ignores chmod; anything else is worth knowing about.
+    logger.debug(`chmod failed on ${base}: ${(err as Error).message}`);
+  }
   const dir = assistantsDirPath();
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   try {
     fs.chmodSync(dir, 0o700);
-  } catch {}
+  } catch (err) {
+    logger.debug(`chmod failed on ${dir}: ${(err as Error).message}`);
+  }
 }
 
 function isUsingDefaultDir(): boolean {

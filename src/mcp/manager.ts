@@ -102,11 +102,6 @@ export class McpManager {
         reject(new McpError(message, "CONNECTION_FAILED", err));
       });
 
-      child.on("spawn", () => {
-        // spawned ok — consider healthy for probe; kill probe
-        // Keep timer to allow quick success, but clear error handler
-      });
-
       child.on("exit", (code) => {
         if (settled) return;
         settled = true;
@@ -153,9 +148,26 @@ export class McpManager {
         signal: controller.signal,
       });
       if (!res.ok) {
-        // Some MCP servers only handle POST; try POST with empty JSON-RPC ping
+        // Some MCP servers only answer POST — retry the probe over POST before
+        // reporting a connection failure.
         if (res.status === 405 || res.status === 404) {
-          throw new McpError(`HTTP probe ${res.status} at ${url}`, "CONNECTION_FAILED");
+          const retry = await fetch(url, {
+            method: "POST",
+            headers: { ...headers, "content-type": "application/json" },
+            body: JSON.stringify({
+              jsonrpc: "2.0",
+              id: 1,
+              method: "initialize",
+              params: {
+                protocolVersion: "2025-03-26",
+                capabilities: {},
+                clientInfo: { name: "hideout", version: "1.0.0" },
+              },
+            }),
+            signal: controller.signal,
+          });
+          if (!retry.ok) throw new McpError(`HTTP probe ${retry.status} at ${url}`, "CONNECTION_FAILED");
+          return { version: retry.headers.get("mcp-version") ?? undefined };
         }
         throw new McpError(`HTTP ${res.status} at ${url}: ${(await res.text().catch(() => "")).slice(0, 500)}`, "CONNECTION_FAILED");
       }
