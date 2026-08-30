@@ -4,11 +4,15 @@
  * File: ${storeDir}/mcp-servers.json  (0o600, dir 0o700)
  * Secrets: stored separately in SecureStore (OS keychain when available)
  *   — never in the JSON file (values appear as "***").
+ *
+ * Platform store dirs (mirrors Electron app.getPath("userData")):
+ *   macOS:   ~/Library/Application Support/Hideout/mcp-servers.json
+ *   Windows: %APPDATA%/Hideout/mcp-servers.json
+ *   Linux:   $XDG_CONFIG_HOME/hideout/mcp-servers.json or ~/.config/hideout/mcp-servers.json
  */
 
 import fs from "node:fs";
 import path from "node:path";
-import os from "node:os";
 import crypto from "node:crypto";
 import { Logger } from "../logger.ts";
 import { McpConfigError, McpError } from "./errors.ts";
@@ -17,13 +21,12 @@ import { validateMcpServerConfig } from "./validation.ts";
 import { splitSecrets, storeSecrets, deleteSecretsForServer, hydrateSecrets, toSafeConfig } from "./secure-helpers.ts";
 import type { SecureStore } from "../ai/secure-store.ts";
 import { secureStore as defaultSecureStore, setStoreDir as setSecureStoreDir } from "../ai/secure-store.ts";
+import { getMcpStoreDir, getLegacyHideoutDir } from "../shared/paths.ts";
 
 const logger = new Logger({ prefix: "mcp-registry" });
 
 function getStoreDir(): string {
-  if (process.env.HIDEOUT_MCP_STORE_DIR) return process.env.HIDEOUT_MCP_STORE_DIR;
-  if (process.env.HIDEOUT_SECURE_STORE_DIR) return process.env.HIDEOUT_SECURE_STORE_DIR;
-  return path.join(os.homedir(), ".hideout");
+  return getMcpStoreDir();
 }
 
 let overrideDir: string | null = null;
@@ -50,27 +53,50 @@ function ensureDir(): void {
   } catch {}
 }
 
+function parseStoreContent(raw: string): Record<string, McpServerConfig> {
+  const parsed = JSON.parse(raw) as unknown;
+  if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+    if ("servers" in (parsed as Record<string, unknown>) && Array.isArray((parsed as Record<string, unknown>).servers)) {
+      const arr = (parsed as { servers: McpServerConfig[] }).servers;
+      const map: Record<string, McpServerConfig> = {};
+      for (const s of arr) if (s?.id) map[s.id] = s;
+      return map;
+    }
+    return parsed as Record<string, McpServerConfig>;
+  }
+  return {};
+}
+
+function readLegacyFileStore(): Record<string, McpServerConfig> | null {
+  const usingDefaultDir = !process.env.HIDEOUT_MCP_STORE_DIR && !process.env.HIDEOUT_SECURE_STORE_DIR && !overrideDir;
+  if (!usingDefaultDir) return null;
+  const legacyFp = path.join(getLegacyHideoutDir(), "mcp-servers.json");
+  if (!fs.existsSync(legacyFp)) return null;
+  try {
+    const raw = fs.readFileSync(legacyFp, "utf-8");
+    return parseStoreContent(raw);
+  } catch {
+    return null;
+  }
+}
+
 function readFileStore(): Record<string, McpServerConfig> {
   const fp = storeFilePath();
-  if (!fs.existsSync(fp)) return {};
-  try {
-    const raw = fs.readFileSync(fp, "utf-8");
-    const parsed = JSON.parse(raw) as unknown;
-    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-      // Support both { id: config } map and { servers: [] } shape (migrate)
-      if ("servers" in (parsed as Record<string, unknown>) && Array.isArray((parsed as Record<string, unknown>).servers)) {
-        const arr = (parsed as { servers: McpServerConfig[] }).servers;
-        const map: Record<string, McpServerConfig> = {};
-        for (const s of arr) if (s?.id) map[s.id] = s;
-        return map;
-      }
-      return parsed as Record<string, McpServerConfig>;
+  if (fs.existsSync(fp)) {
+    try {
+      const raw = fs.readFileSync(fp, "utf-8");
+      return parseStoreContent(raw);
+    } catch (err) {
+      logger.warn(`Failed to read MCP store file: ${(err as Error).message}`);
+      return {};
     }
-    return {};
-  } catch (err) {
-    logger.warn(`Failed to read MCP store file: ${(err as Error).message}`);
-    return {};
   }
+  const legacy = readLegacyFileStore();
+  if (legacy) {
+    logger.info(`Migrating MCP servers from legacy store: ${path.join(getLegacyHideoutDir(), "mcp-servers.json")}`);
+    return legacy;
+  }
+  return {};
 }
 
 function writeFileStore(data: Record<string, McpServerConfig>): void {

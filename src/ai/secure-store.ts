@@ -14,9 +14,9 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import os from "node:os";
 import crypto from "node:crypto";
 import { Logger } from "../logger.ts";
+import { getSecureStoreDir, getLegacyHideoutDir } from "../shared/paths.ts";
 
 const logger = new Logger({ prefix: "secure-store" });
 
@@ -30,11 +30,7 @@ function validateKey(key: string): void {
 }
 
 function getStoreDir(): string {
-  // Allow override for tests / portable mode
-  if (process.env.HIDEOUT_SECURE_STORE_DIR) return process.env.HIDEOUT_SECURE_STORE_DIR;
-  // Default: userData-like dir without requiring Electron import at load time
-  // In Electron main, callers should pass app.getPath("userData") explicitly via setStoreDir.
-  return path.join(os.homedir(), ".hideout");
+  return getSecureStoreDir();
 }
 
 let overrideDir: string | null = null;
@@ -101,20 +97,44 @@ function ensureDir(): void {
 
 type EncryptedStoreFile = Record<string, string>; // key -> base64(encrypted)
 
-function readFileStore(): EncryptedStoreFile {
-  const fp = storeFilePath();
-  if (!fs.existsSync(fp)) return {};
+function readLegacyFileStore(): EncryptedStoreFile | null {
+  const usingDefaultDir = !process.env.HIDEOUT_SECURE_STORE_DIR && !overrideDir;
+  if (!usingDefaultDir) return null;
+  const legacyFp = path.join(getLegacyHideoutDir(), "secure-store.enc.json");
+  if (!fs.existsSync(legacyFp)) return null;
   try {
-    const raw = fs.readFileSync(fp, "utf-8");
+    const raw = fs.readFileSync(legacyFp, "utf-8");
     const parsed = JSON.parse(raw) as unknown;
     if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
       return parsed as EncryptedStoreFile;
     }
-    return {};
-  } catch (err) {
-    logger.warn(`Failed to read secure store file: ${(err as Error).message}`);
-    return {};
+    return null;
+  } catch {
+    return null;
   }
+}
+
+function readFileStore(): EncryptedStoreFile {
+  const fp = storeFilePath();
+  if (fs.existsSync(fp)) {
+    try {
+      const raw = fs.readFileSync(fp, "utf-8");
+      const parsed = JSON.parse(raw) as unknown;
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        return parsed as EncryptedStoreFile;
+      }
+      return {};
+    } catch (err) {
+      logger.warn(`Failed to read secure store file: ${(err as Error).message}`);
+      return {};
+    }
+  }
+  const legacy = readLegacyFileStore();
+  if (legacy) {
+    logger.info(`Migrating secure store from legacy path: ${path.join(getLegacyHideoutDir(), "secure-store.enc.json")}`);
+    return legacy;
+  }
+  return {};
 }
 
 function writeFileStore(data: EncryptedStoreFile): void {
