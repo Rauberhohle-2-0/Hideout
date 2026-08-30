@@ -62,6 +62,38 @@ function headersToText(headers?: Record<string, string>): string {
     .join("\n");
 }
 
+/**
+ * Plain-text summary of a not-yet-added MCP server, shown in the confirm step.
+ * Env/header values are masked — the form already shows them, and echoing
+ * secrets into the summary would only widen their exposure in the DOM.
+ */
+function buildMcpSummary(payload: McpAddServerRequest): string {
+  const lines: string[] = [];
+  lines.push(`ID: ${payload.id}`);
+  lines.push(`Name: ${payload.name}`);
+  lines.push(`Transport: ${payload.transport}`);
+  if (payload.description) lines.push(`Description: ${payload.description}`);
+  if (payload.stdio) {
+    const { command, args, cwd, env } = payload.stdio;
+    lines.push(`Command: ${[command, ...(args ?? [])].join(" ")}`);
+    if (cwd) lines.push(`Working directory: ${cwd}`);
+    if (env && Object.keys(env).length > 0) {
+      lines.push("Environment (values hidden):");
+      for (const k of Object.keys(env)) lines.push(`  ${k}=••••`);
+    }
+  }
+  const h = payload.http ?? payload.sse;
+  if (h) {
+    lines.push(`URL: ${h.url}`);
+    if (h.timeoutSeconds !== undefined) lines.push(`Timeout: ${h.timeoutSeconds}s`);
+    if (h.headers && Object.keys(h.headers).length > 0) {
+      lines.push("Headers (values hidden):");
+      for (const k of Object.keys(h.headers)) lines.push(`  ${k}: ••••`);
+    }
+  }
+  return lines.join("\n");
+}
+
 // ---- tiny DOM helpers ------------------------------------------------------
 
 function el<K extends keyof HTMLElementTagNameMap>(
@@ -977,6 +1009,68 @@ function setupMcpDialog(): void {
   transportEl.addEventListener("change", updateTransportFields);
   updateTransportFields();
 
+  // ---- confirmation step -------------------------------------------------
+  // New servers are not persisted on submit: the user first reviews a summary
+  // of exactly what will be spawned / connected to, then confirms explicitly.
+  const confirmBox = el("div", "mcp-confirm");
+  confirmBox.hidden = true;
+  const confirmHeading = el("h3", "mcp-confirm-title", "Review this MCP server");
+  const confirmWarn = el("div", "mcp-confirm-warn");
+  const confirmSummary = el("pre", "mcp-confirm-summary");
+  const confirmError = el("div", "form-error");
+  confirmError.hidden = true;
+  const confirmFoot = el("div", "dialog-foot");
+  const backBtn = el("button", "btn") as HTMLButtonElement;
+  backBtn.type = "button";
+  backBtn.textContent = "Back to form";
+  const confirmBtn = el("button", "btn btn-primary") as HTMLButtonElement;
+  confirmBtn.type = "button";
+  confirmBtn.textContent = "Confirm & add";
+  confirmFoot.append(backBtn, confirmBtn);
+  confirmBox.append(confirmHeading, confirmWarn, confirmSummary, confirmError, confirmFoot);
+  dialog.append(confirmBox);
+
+  let pendingPayload: McpAddServerRequest | null = null;
+
+  function showConfirm(payload: McpAddServerRequest): void {
+    pendingPayload = payload;
+    confirmWarn.textContent =
+      payload.transport === "stdio"
+        ? "This will run the command above on your machine. An MCP server can execute arbitrary code and read your files — only continue if you trust this server."
+        : "This will connect to the URL above and send the configured headers. Only continue if you trust this server.";
+    confirmSummary.textContent = buildMcpSummary(payload);
+    confirmError.textContent = "";
+    confirmError.hidden = true;
+    if (dialogTitle) dialogTitle.textContent = "Confirm MCP server";
+    form!.hidden = true;
+    confirmBox.hidden = false;
+  }
+
+  function backToForm(): void {
+    pendingPayload = null;
+    confirmBox.hidden = true;
+    form!.hidden = false;
+    confirmError.textContent = "";
+    confirmError.hidden = true;
+    setDialogMode(editingMcpId !== null ? "edit" : "add");
+  }
+
+  confirmBtn.addEventListener("click", async () => {
+    if (!pendingPayload) return;
+    confirmBtn.disabled = true;
+    try {
+      await window.api.mcpAddServer(pendingPayload);
+      pendingPayload = null;
+      close();
+      await loadMcpServers();
+    } catch (err) {
+      confirmError.textContent = errorText(err);
+      confirmError.hidden = false;
+      confirmBtn.disabled = false;
+    }
+  });
+  backBtn.addEventListener("click", backToForm);
+
   function setDialogMode(mode: "add" | "edit"): void {
     if (dialogTitle) dialogTitle.textContent = mode === "edit" ? "Edit MCP Server" : "Add MCP Server";
     if (submitBtn) submitBtn.textContent = mode === "edit" ? "Save changes" : "Add server";
@@ -993,6 +1087,9 @@ function setupMcpDialog(): void {
     transportEl!.value = "stdio";
     updateTransportFields();
     // default enabled true handled by form reset
+    pendingPayload = null;
+    confirmBox.hidden = true;
+    form!.hidden = false;
     if (typeof dialog!.showModal === "function") dialog!.showModal();
     else (dialog as unknown as { open: boolean }).open = true;
   }
@@ -1000,6 +1097,9 @@ function setupMcpDialog(): void {
   function openForEdit(server: McpServerSafe): void {
     editingMcpId = server.id;
     setDialogMode("edit");
+    pendingPayload = null;
+    confirmBox.hidden = true;
+    form!.hidden = false;
     if (errBox) { errBox.textContent = ""; errBox.hidden = true; }
     form!.reset();
     // Populate common fields
@@ -1066,8 +1166,11 @@ function setupMcpDialog(): void {
     if (typeof dialog!.close === "function") {
       try { dialog!.close(); } catch { dialog!.removeAttribute("open"); }
     } else dialog!.removeAttribute("open");
-    // reset edit state after close
+    // reset edit + confirm state after close
     editingMcpId = null;
+    pendingPayload = null;
+    confirmBox.hidden = true;
+    form!.hidden = false;
     if (idInput) idInput.disabled = false;
     transportEl!.disabled = false;
     setDialogMode("add");
@@ -1085,6 +1188,9 @@ function setupMcpDialog(): void {
     editingMcpId = null;
     if (idInput) idInput.disabled = false;
     transportEl!.disabled = false;
+    pendingPayload = null;
+    confirmBox.hidden = true;
+    form!.hidden = false;
     setDialogMode("add");
   });
 
@@ -1186,14 +1292,18 @@ function setupMcpDialog(): void {
       }
     }
 
+    // New servers are not added directly: show a summary of exactly what will be
+    // spawned / connected to and require explicit confirmation first.
+    if (!isEdit) {
+      showConfirm(payload);
+      if (submitBtnEl) submitBtnEl.disabled = false;
+      return;
+    }
+
     try {
-      if (isEdit) {
-        // PATCH via registry.update — send patch without id (id immutable)
-        const { id: _omit, transport: _tOmit, ...patch } = payload;
-        await window.api.mcpUpdateServer(id, patch);
-      } else {
-        await window.api.mcpAddServer(payload);
-      }
+      // PATCH via registry.update — send patch without id (id immutable)
+      const { id: _omit, transport: _tOmit, ...patch } = payload;
+      await window.api.mcpUpdateServer(id, patch);
       close();
       await loadMcpServers();
     } catch (err) {
