@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { HELLO_WORLD } from "../shared/api.ts";
 import { Logger } from "../logger.ts";
 import { aiRoutes } from "./ai-routes.ts";
+import { mcpRoutes } from "./mcp-routes.ts";
 
 const logger = new Logger({ prefix: "hono" });
 
@@ -9,6 +10,7 @@ export const app = new Hono();
 
 // AI provider API — universal interface (local: Ollama; future: OpenAI, Claude, …)
 app.route("/api/ai", aiRoutes);
+app.route("/api/mcp", mcpRoutes);
 
 // Root - plain text Hello World (matches spec)
 app.get("/", (c) => {

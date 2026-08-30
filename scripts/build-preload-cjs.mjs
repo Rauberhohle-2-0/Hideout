@@ -32,6 +32,16 @@ if (code.includes('from "../shared/api.js"') || code.includes("from '../shared/a
       '  AI_HEALTH: "ai:health",',
       '  AI_LIST_MODELS: "ai:list-models",',
       '  AI_CHAT: "ai:chat",',
+      '  MCP_LIST_SERVERS: "mcp:list-servers",',
+      '  MCP_GET_SERVER: "mcp:get-server",',
+      '  MCP_ADD_SERVER: "mcp:add-server",',
+      '  MCP_UPDATE_SERVER: "mcp:update-server",',
+      '  MCP_REMOVE_SERVER: "mcp:remove-server",',
+      '  MCP_HEALTH: "mcp:health",',
+      '  MCP_LIST_TOOLS: "mcp:list-tools",',
+      '  MCP_CONNECT: "mcp:connect",',
+      '  MCP_DISCONNECT: "mcp:disconnect",',
+      '  MCP_SET_ENABLED: "mcp:set-enabled",',
       '};',
     ].join("\n")
   );

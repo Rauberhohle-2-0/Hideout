@@ -232,6 +232,124 @@
       border: 1px solid color-mix(in srgb, var(--err) 30%, transparent);
       word-break: break-word;
     }
+
+    .section-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin: 28px 0 14px;
+      flex-wrap: wrap;
+    }
+    .section-title {
+      margin: 0;
+      font-size: 1.1rem;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+    }
+    .section-subtitle {
+      margin: 2px 0 0;
+      color: var(--muted);
+      font-size: 0.82rem;
+    }
+    .mcp-toolbar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--card);
+      color: var(--text);
+      font: inherit;
+      font-size: 0.82rem;
+      font-weight: 600;
+      padding: 7px 12px;
+      cursor: pointer;
+    }
+    .btn-primary {
+      background: var(--accent);
+      color: #fff;
+      border-color: transparent;
+    }
+    .btn-primary:hover { opacity: 0.9; }
+    .btn:disabled { opacity: 0.55; cursor: default; }
+    .btn .spin {
+      display: inline-block;
+      width: 12px;
+      height: 12px;
+      border: 2px solid rgba(255,255,255,0.4);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+    }
+    .btn:not(.btn-primary) .spin { border-color: color-mix(in srgb, var(--muted) 40%, transparent); border-top-color: var(--muted); }
+
+    /* MCP cards reuse provider-card base but allow extra header line */
+    .mcp-card .provider-url { word-break: break-all; }
+    .mcp-disabled { opacity: 0.7; }
+    .transport-badge {
+      font-size: 0.7rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      border-radius: 999px;
+      padding: 2px 9px;
+      border: 1px solid var(--border);
+      color: var(--muted);
+      background: var(--card);
+    }
+    .transport-badge-stdio { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 30%, transparent); background: color-mix(in srgb, var(--accent) 10%, transparent); }
+    .transport-badge-http { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 30%, transparent); background: color-mix(in srgb, var(--ok) 10%, transparent); }
+    .transport-badge-sse { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 30%, transparent); background: color-mix(in srgb, var(--warn) 10%, transparent); }
+    .mcp-actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+    .mcp-actions .btn { font-size: 0.78rem; padding: 6px 10px; }
+    .mcp-empty { color: var(--muted); font-size: 0.85rem; padding: 14px; border: 1px dashed var(--border); border-radius: 12px; text-align: center; background: color-mix(in srgb, var(--card) 80%, transparent); }
+    .mcp-meta { color: var(--muted); font-size: 0.78rem; margin-top: 4px; }
+
+    /* Dialog / form */
+    dialog.mcp-dialog {
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 0;
+      background: var(--card);
+      color: var(--text);
+      max-width: 560px;
+      width: calc(100% - 32px);
+      box-shadow: 0 16px 40px rgba(0,0,0,0.18);
+    }
+    dialog.mcp-dialog::backdrop { background: rgba(0,0,0,0.35); backdrop-filter: blur(2px); }
+    .dialog-head { padding: 18px 20px 0; display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+    .dialog-head h2 { margin: 0; font-size: 1.05rem; }
+    .dialog-head p { margin: 4px 0 0; color: var(--muted); font-size: 0.82rem; }
+    .icon-btn { border: none; background: transparent; color: var(--muted); font-size: 1.2rem; cursor: pointer; padding: 4px 6px; border-radius: 8px; }
+    .icon-btn:hover { background: var(--bg); color: var(--text); }
+    .dialog-body { padding: 16px 20px; display: grid; gap: 12px; }
+    .field { display: grid; gap: 6px; }
+    .field label { font-size: 0.82rem; font-weight: 600; }
+    .field input, .field select, .field textarea {
+      width: 100%;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 10px;
+      font: inherit;
+      font-size: 0.88rem;
+      background: var(--card);
+      color: var(--text);
+    }
+    .field textarea { resize: vertical; min-height: 62px; }
+    .field small { color: var(--muted); font-size: 0.74rem; }
+    .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .form-grid .field.span-2 { grid-column: 1 / -1; }
+    @media (max-width: 560px) { .form-grid { grid-template-columns: 1fr; } }
+    .dialog-foot { padding: 0 20px 18px; display: flex; justify-content: flex-end; gap: 10px; }
+    .form-error { background: var(--err-bg); color: var(--err); border-radius: 8px; padding: 8px 12px; font-size: 0.82rem; white-space: pre-wrap; word-break: break-word; }
+    .form-error[hidden] { display: none !important; }
+    .hidden { display: none !important; }
   </style>
 </head>
 <body>
@@ -252,10 +370,120 @@
 
     <div id="content" class="providers"><!-- provider cards injected here --></div>
 
+    <section class="mcp-section" aria-labelledby="mcp-title">
+      <div class="section-header">
+        <div>
+          <h2 id="mcp-title" class="section-title">MCP Servers</h2>
+          <p class="section-subtitle">Connected tools via Model Context Protocol</p>
+        </div>
+        <div class="mcp-toolbar">
+          <span id="mcp-last-check" class="last-check"></span>
+          <button id="mcp-refresh-btn" class="btn" type="button">
+            <span id="mcp-refresh-icon" class="spin" style="display: none"></span>
+            Check MCP
+          </button>
+          <button id="mcp-add-btn" class="btn btn-primary" type="button">Add MCP Server</button>
+        </div>
+      </div>
+      <div id="mcp-content" class="providers"><!-- mcp cards injected here --></div>
+    </section>
+
     <footer class="note">
       Connection is checked locally against your AI provider. No data ever leaves your machine for local providers.
     </footer>
   </main>
+
+  <dialog id="mcp-dialog" class="mcp-dialog" aria-labelledby="mcp-dialog-title">
+    <div class="dialog-head">
+      <div>
+        <h2 id="mcp-dialog-title">Add MCP Server</h2>
+        <p>Configure a new MCP server. Secrets are stored in the OS keychain and never shown.</p>
+      </div>
+      <button id="mcp-dialog-close" class="icon-btn" type="button" aria-label="Close">✕</button>
+    </div>
+    <form id="mcp-form" method="dialog">
+      <div class="dialog-body">
+        <div class="form-grid">
+          <div class="field">
+            <label for="mcp-id">ID *</label>
+            <input id="mcp-id" name="id" required placeholder="exa" pattern="[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}" maxlength="64" />
+            <small>Slug, e.g. exa, fs-tools, notion</small>
+          </div>
+          <div class="field">
+            <label for="mcp-name">Name *</label>
+            <input id="mcp-name" name="name" required placeholder="Exa AI" maxlength="128" />
+          </div>
+          <div class="field">
+            <label for="mcp-transport">Transport *</label>
+            <select id="mcp-transport" name="transport">
+              <option value="stdio" selected>stdio</option>
+              <option value="http">http</option>
+              <option value="sse">sse</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="mcp-enabled">Enabled</label>
+            <select id="mcp-enabled" name="enabled">
+              <option value="true" selected>Yes</option>
+              <option value="false">No</option>
+            </select>
+          </div>
+          <div class="field span-2">
+            <label for="mcp-desc">Description</label>
+            <input id="mcp-desc" name="description" placeholder="Optional description" maxlength="512" />
+          </div>
+        </div>
+
+        <div id="mcp-fields-stdio">
+          <div class="form-grid">
+            <div class="field">
+              <label for="mcp-command">Command *</label>
+              <input id="mcp-command" name="command" placeholder="npx" />
+              <small>e.g. npx, uvx, node, python3</small>
+            </div>
+            <div class="field">
+              <label for="mcp-cwd">Working directory</label>
+              <input id="mcp-cwd" name="cwd" placeholder="/path/to/project" />
+            </div>
+            <div class="field span-2">
+              <label for="mcp-args">Args</label>
+              <input id="mcp-args" name="args" placeholder="-y exa-mcp-server" />
+              <small>Space-separated or comma-separated — e.g. -y, exa-mcp-server</small>
+            </div>
+            <div class="field span-2">
+              <label for="mcp-env">Env vars (KEY=VALUE per line)</label>
+              <textarea id="mcp-env" name="env" rows="3" placeholder="API_KEY=...&#10;DEBUG=1"></textarea>
+              <small>Secrets are encrypted at rest</small>
+            </div>
+          </div>
+        </div>
+
+        <div id="mcp-fields-http" class="hidden">
+          <div class="form-grid">
+            <div class="field span-2">
+              <label for="mcp-url">URL *</label>
+              <input id="mcp-url" name="url" placeholder="http://127.0.0.1:3000/mcp" />
+            </div>
+            <div class="field">
+              <label for="mcp-timeout">Timeout (seconds)</label>
+              <input id="mcp-timeout" name="timeoutSeconds" type="number" min="1" max="300" placeholder="30" />
+            </div>
+            <div class="field span-2">
+              <label for="mcp-headers">Headers (Key: Value per line)</label>
+              <textarea id="mcp-headers" name="headers" rows="3" placeholder="Authorization: Bearer ...&#10;X-Api-Key: ..."></textarea>
+              <small>Header values are stored encrypted</small>
+            </div>
+          </div>
+        </div>
+
+        <div id="mcp-form-error" class="form-error" hidden></div>
+      </div>
+      <div class="dialog-foot">
+        <button type="button" id="mcp-cancel-btn" class="btn">Cancel</button>
+        <button type="submit" id="mcp-submit-btn" class="btn btn-primary">Add server</button>
+      </div>
+    </form>
+  </dialog>
   <!-- Renderer is untrusted: no Node integration, only contextBridge API -->
   <script type="module" src="./renderer.js"></script>
 </body>
