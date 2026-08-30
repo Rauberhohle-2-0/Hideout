@@ -36,15 +36,6 @@ export class AiRegistry {
     return [...this.providers.values()];
   }
 
-  listConfigs(): Array<ReturnType<AiProvider extends { getConfig(): infer C } ? () => C : never>> {
-    // Returns safe configs (secrets omitted) if provider exposes getConfig()
-    return this.list().map((p) => {
-      const maybe = p as unknown as { getConfig?: () => unknown };
-      if (maybe.getConfig) return maybe.getConfig() as never;
-      return { id: p.id, kind: p.kind } as never;
-    });
-  }
-
   /** Health of all providers in parallel */
   async healthAll(signal?: AbortSignal): Promise<Record<AiProviderId, AiHealthStatus>> {
     const entries = await Promise.all(

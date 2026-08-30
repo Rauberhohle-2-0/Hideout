@@ -3,104 +3,27 @@ import { getDefaultRegistry } from "../ai/index.ts";
 import { AiError } from "../ai/errors.ts";
 import { Logger } from "../logger.ts";
 import { getDefaultAssistantRegistry } from "../assistants/registry.ts";
+import { createRateLimiter } from "./rate-limit.ts";
+import { parseBody } from "./validation.ts";
+import { chatBodyValidator, type ValidChatBody } from "./chat-validation.ts";
+import type { AiMessage } from "../ai/types.ts";
 
 const logger = new Logger({ prefix: "ai-routes" });
 
 export const aiRoutes = new Hono();
 
-// Simple in-memory rate limiter: 60 req/min per IP per route group
-const WINDOW_MS = 60_000;
-const MAX_REQ = 60;
-const buckets = new Map<string, { count: number; resetAt: number }>();
-
-function rateLimit(
-  c: { req: { header(n: string): string | undefined }; json(d: unknown, s?: number): Response },
-  next: () => Promise<void>,
-): Promise<void> | Response {
-  const ip = c.req.header("x-forwarded-for") ?? c.req.header("x-real-ip") ?? "127.0.0.1";
-  const key = `${ip}:ai`;
-  const now = Date.now();
-  const cur = buckets.get(key);
-  if (!cur || now > cur.resetAt) {
-    buckets.set(key, { count: 1, resetAt: now + WINDOW_MS });
-    return next();
-  }
-  if (cur.count >= MAX_REQ) {
-    return c.json({ error: "Rate limited" }, 429);
-  }
-  cur.count++;
-  return next();
-}
-
-// For tests: clear buckets
-export function __clearAiRateLimit(): void {
-  buckets.clear();
-}
+const rateLimit = createRateLimiter("ai");
 
 function getRegistry() {
   return getDefaultRegistry();
 }
 
-type ValidChatBody = {
-  providerId: string;
-  messages: unknown[];
-  model?: string;
-  temperature?: number;
-  maxTokens?: number;
-  topP?: number;
-  topK?: number;
-  minP?: number;
-  repeatPenalty?: number;
-  frequencyPenalty?: number;
-  presencePenalty?: number;
-  seed?: number;
-  stop?: string[];
-  assistantId?: string;
-};
-
-function validateChatBody(body: unknown): ValidChatBody | { error: string } {
-  if (!body || typeof body !== "object" || Array.isArray(body)) return { error: "Invalid JSON body" };
-  const b = body as Record<string, unknown>;
-  if (typeof b.providerId !== "string" || !b.providerId) return { error: "providerId is required" };
-  if (!Array.isArray(b.messages) || (b.messages as unknown[]).length === 0) return { error: "messages must be a non-empty array" };
-  for (let i = 0; i < (b.messages as unknown[]).length; i++) {
-    const m = (b.messages as unknown[])[i] as Record<string, unknown>;
-    if (!m || typeof m.role !== "string" || typeof m.content !== "string") {
-      return { error: `messages[${i}] must have string role and content` };
-    }
-    if (!["system", "user", "assistant", "tool"].includes(m.role as string)) {
-      return { error: `messages[${i}].role invalid` };
-    }
-    if ((m.content as string).length > 200_000) return { error: `messages[${i}].content too large` };
-  }
-  if (b.model !== undefined && typeof b.model !== "string") return { error: "model must be a string" };
-  if (b.temperature !== undefined && (typeof b.temperature !== "number" || b.temperature < 0 || b.temperature > 2)) {
-    return { error: "temperature must be a number 0..2" };
-  }
-  if (b.maxTokens !== undefined && (typeof b.maxTokens !== "number" || b.maxTokens <= 0 || b.maxTokens > 200_000)) {
-    return { error: "maxTokens must be a positive number" };
-  }
-  if (b.topP !== undefined && (typeof b.topP !== "number" || b.topP < 0 || b.topP > 1)) return { error: "topP must be 0..1" };
-  if (b.topK !== undefined && (typeof b.topK !== "number" || !Number.isInteger(b.topK as number) || (b.topK as number) < 0 || (b.topK as number) > 100)) return { error: "topK must be integer 0..100" };
-  if (b.minP !== undefined && (typeof b.minP !== "number" || b.minP < 0 || b.minP > 1)) return { error: "minP must be 0..1" };
-  if (b.repeatPenalty !== undefined && (typeof b.repeatPenalty !== "number" || b.repeatPenalty < 0 || b.repeatPenalty > 2)) return { error: "repeatPenalty must be 0..2" };
-  if (b.frequencyPenalty !== undefined && (typeof b.frequencyPenalty !== "number" || b.frequencyPenalty < -2 || b.frequencyPenalty > 2)) return { error: "frequencyPenalty must be -2..2" };
-  if (b.presencePenalty !== undefined && (typeof b.presencePenalty !== "number" || b.presencePenalty < -2 || b.presencePenalty > 2)) return { error: "presencePenalty must be -2..2" };
-  if (b.seed !== undefined && (typeof b.seed !== "number" || !Number.isInteger(b.seed as number))) return { error: "seed must be integer" };
-  if (b.stop !== undefined && (!Array.isArray(b.stop) || !(b.stop as unknown[]).every((s) => typeof s === "string"))) {
-    return { error: "stop must be string[]" };
-  }
-  if (b.assistantId !== undefined && typeof b.assistantId !== "string") return { error: "assistantId must be string" };
-  if (typeof b.assistantId === "string" && b.assistantId.length > 64) return { error: "assistantId too long" };
-  return b as never;
-}
-
 function resolveAssistantChatContext(
   parsed: ValidChatBody,
-): { messages: unknown[]; model?: string; temperature?: number; maxTokens?: number; topP?: number; topK?: number; minP?: number; repeatPenalty?: number; frequencyPenalty?: number; presencePenalty?: number; seed?: number; stop?: string[] } {
+): { messages: AiMessage[]; model?: string; temperature?: number; maxTokens?: number; topP?: number; topK?: number; minP?: number; repeatPenalty?: number; frequencyPenalty?: number; presencePenalty?: number; seed?: number; stop?: string[] } {
   if (!("assistantId" in parsed) || !parsed.assistantId) {
     return {
-      messages: parsed.messages as never,
+      messages: parsed.messages,
       ...(parsed.model !== undefined ? { model: parsed.model } : {}),
       ...(parsed.temperature !== undefined ? { temperature: parsed.temperature } : {}),
       ...(parsed.maxTokens !== undefined ? { maxTokens: parsed.maxTokens } : {}),
@@ -120,7 +43,7 @@ function resolveAssistantChatContext(
     // If assistant not found/disabled, return parsed as-is; route handler will return 404 before calling this for strict cases
     // For leniency, just return without injection
     return {
-      messages: parsed.messages as never,
+      messages: parsed.messages,
       ...(parsed.model !== undefined ? { model: parsed.model } : {}),
       ...(parsed.temperature !== undefined ? { temperature: parsed.temperature } : {}),
       ...(parsed.maxTokens !== undefined ? { maxTokens: parsed.maxTokens } : {}),
@@ -152,22 +75,22 @@ function resolveAssistantChatContext(
   };
 
   // Inject system prompt if assistant has instructions and messages don't already start with system
-  let messages: unknown[] = parsed.messages as unknown[];
-  const hasSystem = messages.length > 0 && (messages[0] as { role?: string })?.role === "system";
+  let messages: AiMessage[] = parsed.messages;
+  const hasSystem = messages.length > 0 && messages[0]?.role === "system";
   if (assistant.instructions) {
     if (!hasSystem) {
       messages = [{ role: "system", content: assistant.instructions }, ...messages];
     } else {
       // Prepend assistant instructions before existing system content (assistant is primary system)
       // Keep existing system as second message or merge
-      const existing = messages[0] as { role: string; content: string };
+      const existing = messages[0]!;
       const mergedSystem = `${assistant.instructions}\n\n${existing.content}`;
       messages = [{ role: "system", content: mergedSystem }, ...messages.slice(1)];
     }
   }
 
   return {
-    messages: messages as never,
+    messages: messages,
     ...(merged.model !== undefined ? { model: merged.model } : {}),
     ...(merged.temperature !== undefined ? { temperature: merged.temperature } : {}),
     ...(merged.maxTokens !== undefined ? { maxTokens: merged.maxTokens } : {}),
@@ -227,17 +150,11 @@ aiRoutes.get("/providers/:id/models", async (c) => {
 // POST /api/ai/chat  { providerId, messages, model?, temperature?, maxTokens?, topP?, topK?, minP?, repeatPenalty?, frequencyPenalty?, presencePenalty?, seed?, stop?, assistantId? }
 aiRoutes.post("/chat", async (c) => {
   // rate limit
-  const rl = rateLimit(c as never, async () => {});
-  if (rl instanceof Response) return rl as never;
+  const limited = rateLimit(c);
+  if (limited) return limited;
 
-  let body: unknown;
-  try {
-    body = await c.req.json();
-  } catch {
-    return c.json({ error: "Invalid JSON" }, 400);
-  }
-  const parsed = validateChatBody(body);
-  if ("error" in parsed) return c.json({ error: parsed.error }, 400);
+  const parsed = await parseBody(c, chatBodyValidator);
+  if (parsed instanceof Response) return parsed;
 
   // If assistantId provided, validate existence and adherence before proceeding
   if (parsed.assistantId) {
@@ -259,7 +176,7 @@ aiRoutes.post("/chat", async (c) => {
   if (!provider) return c.json({ error: `Provider not found: ${providerId}` }, 404);
 
   try {
-    const res = await provider.chat(ctx.messages as never, {
+    const res = await provider.chat(ctx.messages, {
       model: ctx.model,
       temperature: ctx.temperature,
       maxTokens: ctx.maxTokens,
@@ -297,17 +214,11 @@ aiRoutes.post("/chat", async (c) => {
 
 // POST /api/ai/chat/stream  -> Server-Sent Events (text/event-stream)
 aiRoutes.post("/chat/stream", async (c) => {
-  const rl = rateLimit(c as never, async () => {});
-  if (rl instanceof Response) return rl as never;
+  const limited = rateLimit(c);
+  if (limited) return limited;
 
-  let body: unknown;
-  try {
-    body = await c.req.json();
-  } catch {
-    return c.json({ error: "Invalid JSON" }, 400);
-  }
-  const parsed = validateChatBody(body);
-  if ("error" in parsed) return c.json({ error: parsed.error }, 400);
+  const parsed = await parseBody(c, chatBodyValidator);
+  if (parsed instanceof Response) return parsed;
 
   if (parsed.assistantId) {
     const aReg = getDefaultAssistantRegistry();
@@ -330,7 +241,7 @@ aiRoutes.post("/chat/stream", async (c) => {
         controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
       };
       try {
-        for await (const chunk of provider.chatStream(ctx.messages as never, {
+        for await (const chunk of provider.chatStream(ctx.messages, {
           model: ctx.model,
           temperature: ctx.temperature,
           maxTokens: ctx.maxTokens,

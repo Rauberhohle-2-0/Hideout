@@ -1,39 +1,24 @@
 import { Hono } from "hono";
 import { getDefaultMcpRegistry } from "../mcp/registry.ts";
 import { getDefaultMcpManager } from "../mcp/manager.ts";
-import { validateMcpServerConfig } from "../mcp/validation.ts";
 import { McpError } from "../mcp/errors.ts";
+import { createRateLimiter } from "./rate-limit.ts";
+import {
+  enabledToggleValidator,
+  jsonObjectValidator,
+  mcpServerValidator,
+  parseBody,
+  rejectInvalid,
+  requestJson,
+} from "./validation.ts";
+import type { McpServerConfig } from "../mcp/types.ts";
 import { Logger } from "../logger.ts";
 
 const logger = new Logger({ prefix: "mcp-routes" });
 
 export const mcpRoutes = new Hono();
 
-// Simple rate limiter: 60 req/min per IP for MCP group
-const WINDOW_MS = 60_000;
-const MAX_REQ = 60;
-const buckets = new Map<string, { count: number; resetAt: number }>();
-
-function rateLimit(
-  c: { req: { header(n: string): string | undefined }; json(d: unknown, s?: number): Response },
-  next: () => Promise<void>,
-): Promise<void> | Response {
-  const ip = c.req.header("x-forwarded-for") ?? c.req.header("x-real-ip") ?? "127.0.0.1";
-  const key = `${ip}:mcp`;
-  const now = Date.now();
-  const cur = buckets.get(key);
-  if (!cur || now > cur.resetAt) {
-    buckets.set(key, { count: 1, resetAt: now + WINDOW_MS });
-    return next();
-  }
-  if (cur.count >= MAX_REQ) return c.json({ error: "Rate limited" }, 429);
-  cur.count++;
-  return next();
-}
-
-export function __clearMcpRateLimit(): void {
-  buckets.clear();
-}
+const rateLimit = createRateLimiter("mcp");
 
 function getRegistry() {
   return getDefaultMcpRegistry();
@@ -61,22 +46,15 @@ mcpRoutes.get("/servers/:id", async (c) => {
 
 // POST /api/mcp/servers — create
 mcpRoutes.post("/servers", async (c) => {
-  const rl = rateLimit(c as never, async () => {});
-  if (rl instanceof Response) return rl as never;
+  const limited = rateLimit(c);
+  if (limited) return limited;
 
-  let body: unknown;
-  try {
-    body = await c.req.json();
-  } catch {
-    return c.json({ error: "Invalid JSON" }, 400);
-  }
-
-  const v = validateMcpServerConfig(body);
-  if (!v.valid) return c.json({ error: "Validation failed", details: v.errors }, 400);
+  const server = await parseBody(c, mcpServerValidator);
+  if (server instanceof Response) return server;
 
   const registry = getRegistry();
   try {
-    const safe = await registry.add(v.sanitized!);
+    const safe = await registry.add(server);
     return c.json({ server: safe }, 201);
   } catch (err) {
     if (err instanceof McpError) {
@@ -90,25 +68,20 @@ mcpRoutes.post("/servers", async (c) => {
 
 // PUT /api/mcp/servers/:id — upsert / update
 mcpRoutes.put("/servers/:id", async (c) => {
-  const rl = rateLimit(c as never, async () => {});
-  if (rl instanceof Response) return rl as never;
+  const limited = rateLimit(c);
+  if (limited) return limited;
 
   const id = c.req.param("id");
-  let body: unknown;
-  try {
-    body = await c.req.json();
-  } catch {
-    return c.json({ error: "Invalid JSON" }, 400);
-  }
-
+  const raw = await requestJson(c);
+  if (raw instanceof Response) return raw;
   // Allow body without id or with matching id
-  const candidate = { ...(body as Record<string, unknown>), id };
-  const v = validateMcpServerConfig(candidate);
-  if (!v.valid) return c.json({ error: "Validation failed", details: v.errors }, 400);
+  const candidate = { ...(raw as Record<string, unknown>), id };
+  const server = rejectInvalid(c, mcpServerValidator, candidate);
+  if (server instanceof Response) return server;
 
   const registry = getRegistry();
   try {
-    const safe = await registry.upsert(v.sanitized!);
+    const safe = await registry.upsert(server);
     return c.json({ server: safe });
   } catch (err) {
     if (err instanceof McpError) {
@@ -122,17 +95,12 @@ mcpRoutes.put("/servers/:id", async (c) => {
 // PATCH /api/mcp/servers/:id — partial update
 mcpRoutes.patch("/servers/:id", async (c) => {
   const id = c.req.param("id");
-  let body: unknown;
-  try {
-    body = await c.req.json();
-  } catch {
-    return c.json({ error: "Invalid JSON" }, 400);
-  }
-  if (!body || typeof body !== "object" || Array.isArray(body)) return c.json({ error: "Invalid JSON body" }, 400);
+  const patch = await parseBody(c, jsonObjectValidator);
+  if (patch instanceof Response) return patch;
 
   const registry = getRegistry();
   try {
-    const safe = await registry.update(id, body as never);
+    const safe = await registry.update(id, patch as Partial<McpServerConfig>);
     return c.json({ server: safe });
   } catch (err) {
     if (err instanceof McpError) {
@@ -180,14 +148,9 @@ mcpRoutes.post("/servers/:id/disable", async (c) => {
 // POST /api/mcp/servers/:id/enabled — generic toggle { enabled: boolean }
 mcpRoutes.post("/servers/:id/enabled", async (c) => {
   const id = c.req.param("id");
-  let body: unknown;
-  try {
-    body = await c.req.json();
-  } catch {
-    return c.json({ error: "Invalid JSON" }, 400);
-  }
-  const enabled = (body as Record<string, unknown>)?.enabled;
-  if (typeof enabled !== "boolean") return c.json({ error: "enabled must be boolean" }, 400);
+  const toggle = await parseBody(c, enabledToggleValidator);
+  if (toggle instanceof Response) return toggle;
+  const enabled = toggle.enabled;
   const registry = getRegistry();
   const manager = getManager();
   try {

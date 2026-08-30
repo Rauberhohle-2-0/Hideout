@@ -1,4 +1,12 @@
-import type { Api, AiProviderInfo, McpServerSafe, AssistantSafe } from "../shared/api.ts";
+import type {
+  Api,
+  AiProviderInfo,
+  AssistantAddRequest,
+  AssistantParametersWire,
+  AssistantSafe,
+  McpAddServerRequest,
+  McpServerSafe,
+} from "../shared/api.ts";
 
 declare global {
   interface Window {
@@ -1044,7 +1052,7 @@ function setupMcpDialog(): void {
       return;
     }
 
-    let payload: Record<string, unknown> = { id, name, transport, enabled };
+    const payload: McpAddServerRequest = { id, name, transport, enabled };
     if (description) payload.description = description;
     else if (isEdit) payload.description = ""; // allow clearing description on edit
 
@@ -1101,7 +1109,11 @@ function setupMcpDialog(): void {
         if (submitBtnEl) submitBtnEl.disabled = false;
         return;
       }
-      const httpPayload: Record<string, unknown> = { url, ...(headers ? { headers } : {}), ...(timeoutSeconds ? { timeoutSeconds } : {}) };
+      const httpPayload: McpAddServerRequest["http"] = {
+        url,
+        ...(headers ? { headers } : {}),
+        ...(timeoutSeconds ? { timeoutSeconds } : {}),
+      };
       if (transport === "sse") {
         payload.sse = httpPayload;
         // keep http for compatibility — server normalizes http/sse
@@ -1110,10 +1122,8 @@ function setupMcpDialog(): void {
         payload.http = httpPayload;
       }
       if (isEdit && rawHeaders && !headers) {
-        const hp = payload.http as Record<string, unknown> | undefined;
-        if (hp) delete hp.headers;
-        const sp = payload.sse as Record<string, unknown> | undefined;
-        if (sp) delete sp.headers;
+        if (payload.http) delete payload.http.headers;
+        if (payload.sse) delete payload.sse.headers;
       }
     }
 
@@ -1121,18 +1131,9 @@ function setupMcpDialog(): void {
       if (isEdit) {
         // PATCH via registry.update — send patch without id (id immutable)
         const { id: _omit, transport: _tOmit, ...patch } = payload;
-        // For edit, if description was explicitly cleared, send empty string? Registry merges, so empty will clear
-        // Keep transport out of patch to avoid disabled field confusion (registry keeps existing)
-        const patchToSend: Record<string, unknown> = { ...patch };
-        // Remove empty description placeholder handling: if description === "" we want to clear, but validation trims; send undefined to keep?
-        // For now, if description was "" we delete it so existing stays? To allow clearing, send description: "" explicitly?
-        // We built payload.description as "" when edit and empty, so patch has description:"" — backend will treat as omission? We'll delete empty to allow clearing via explicit undefined
-        // Instead, send description as undefined to clear? Validation ignores missing description, so to clear we need to send description:""
-        // Keep as is — backend's merge will keep hydrated description if patch doesn't have description; to clear, we need to send description:"" and validation will drop empty -> sanitized omits description (effectively cleared)
-        // We'll keep patch.description as is ("" will be sanitized to omitted)
-        await window.api.mcpUpdateServer(id, patchToSend as never);
+        await window.api.mcpUpdateServer(id, patch);
       } else {
-        await window.api.mcpAddServer(payload as never);
+        await window.api.mcpAddServer(payload);
       }
       close();
       await loadMcpServers();
@@ -1295,7 +1296,7 @@ function setupAssistantDialog(): void {
     }
 
     // Build parameters — only include if user provided value
-    const params: Record<string, unknown> = {};
+    const params: AssistantParametersWire = {};
     const tempRaw = String(fd.get("temperature") ?? "").trim();
     const topPRaw = String(fd.get("topP") ?? "").trim();
     const topKRaw = String(fd.get("topK") ?? "").trim();
@@ -1391,7 +1392,7 @@ function setupAssistantDialog(): void {
     const stop = parseStop(stopRaw);
     if (stop) params.stop = stop;
 
-    const payload: Record<string, unknown> = {
+    const payload: AssistantAddRequest = {
       id,
       name,
       instructions,
@@ -1418,9 +1419,9 @@ function setupAssistantDialog(): void {
         // If parameters were omitted and existing has parameters, they will be preserved via merge.
         // To allow clearing individual params, user would need to re-specify params without that key — merge will preserve old key.
         // For full replace, we could send parameters as provided only.
-        await window.api.assistantUpdate(id, patch as never);
+        await window.api.assistantUpdate(id, patch);
       } else {
-        await window.api.assistantAdd(payload as never);
+        await window.api.assistantAdd(payload);
       }
       close();
       await loadAssistants();

@@ -1,38 +1,23 @@
 import { Hono } from "hono";
 import { getDefaultAssistantRegistry } from "../assistants/registry.ts";
-import { validateAssistantConfig } from "../assistants/validation.ts";
 import { AssistantError } from "../assistants/errors.ts";
+import { createRateLimiter } from "./rate-limit.ts";
+import {
+  assistantValidator,
+  enabledToggleValidator,
+  jsonObjectValidator,
+  parseBody,
+  rejectInvalid,
+  requestJson,
+} from "./validation.ts";
+import type { AssistantConfig } from "../assistants/types.ts";
 import { Logger } from "../logger.ts";
 
 const logger = new Logger({ prefix: "assistant-routes" });
 
 export const assistantRoutes = new Hono();
 
-// Simple rate limiter: 60 req/min per IP for assistant group
-const WINDOW_MS = 60_000;
-const MAX_REQ = 60;
-const buckets = new Map<string, { count: number; resetAt: number }>();
-
-function rateLimit(
-  c: { req: { header(n: string): string | undefined }; json(d: unknown, s?: number): Response },
-  next: () => Promise<void>,
-): Promise<void> | Response {
-  const ip = c.req.header("x-forwarded-for") ?? c.req.header("x-real-ip") ?? "127.0.0.1";
-  const key = `${ip}:assistant`;
-  const now = Date.now();
-  const cur = buckets.get(key);
-  if (!cur || now > cur.resetAt) {
-    buckets.set(key, { count: 1, resetAt: now + WINDOW_MS });
-    return next();
-  }
-  if (cur.count >= MAX_REQ) return c.json({ error: "Rate limited" }, 429);
-  cur.count++;
-  return next();
-}
-
-export function __clearAssistantRateLimit(): void {
-  buckets.clear();
-}
+const rateLimit = createRateLimiter("assistant");
 
 function getRegistry() {
   return getDefaultAssistantRegistry();
@@ -56,22 +41,15 @@ assistantRoutes.get("/:id", async (c) => {
 
 // POST /api/assistants — create
 assistantRoutes.post("/", async (c) => {
-  const rl = rateLimit(c as never, async () => {});
-  if (rl instanceof Response) return rl as never;
+  const limited = rateLimit(c);
+  if (limited) return limited;
 
-  let body: unknown;
-  try {
-    body = await c.req.json();
-  } catch {
-    return c.json({ error: "Invalid JSON" }, 400);
-  }
-
-  const v = validateAssistantConfig(body);
-  if (!v.valid) return c.json({ error: "Validation failed", details: v.errors }, 400);
+  const parsed = await parseBody(c, assistantValidator);
+  if (parsed instanceof Response) return parsed;
 
   const registry = getRegistry();
   try {
-    const assistant = await registry.add(v.sanitized!);
+    const assistant = await registry.add(parsed);
     return c.json({ assistant }, 201);
   } catch (err) {
     if (err instanceof AssistantError) {
@@ -85,24 +63,19 @@ assistantRoutes.post("/", async (c) => {
 
 // PUT /api/assistants/:id — upsert
 assistantRoutes.put("/:id", async (c) => {
-  const rl = rateLimit(c as never, async () => {});
-  if (rl instanceof Response) return rl as never;
+  const limited = rateLimit(c);
+  if (limited) return limited;
 
   const id = c.req.param("id");
-  let body: unknown;
-  try {
-    body = await c.req.json();
-  } catch {
-    return c.json({ error: "Invalid JSON" }, 400);
-  }
-
-  const candidate = { ...(body as Record<string, unknown>), id };
-  const v = validateAssistantConfig(candidate);
-  if (!v.valid) return c.json({ error: "Validation failed", details: v.errors }, 400);
+  const raw = await requestJson(c);
+  if (raw instanceof Response) return raw;
+  const candidate = { ...(raw as Record<string, unknown>), id };
+  const parsed = rejectInvalid(c, assistantValidator, candidate);
+  if (parsed instanceof Response) return parsed;
 
   const registry = getRegistry();
   try {
-    const assistant = await registry.upsert(v.sanitized!);
+    const assistant = await registry.upsert(parsed);
     return c.json({ assistant });
   } catch (err) {
     if (err instanceof AssistantError) {
@@ -116,17 +89,12 @@ assistantRoutes.put("/:id", async (c) => {
 // PATCH /api/assistants/:id — partial update
 assistantRoutes.patch("/:id", async (c) => {
   const id = c.req.param("id");
-  let body: unknown;
-  try {
-    body = await c.req.json();
-  } catch {
-    return c.json({ error: "Invalid JSON" }, 400);
-  }
-  if (!body || typeof body !== "object" || Array.isArray(body)) return c.json({ error: "Invalid JSON body" }, 400);
+  const patch = await parseBody(c, jsonObjectValidator);
+  if (patch instanceof Response) return patch;
 
   const registry = getRegistry();
   try {
-    const assistant = await registry.update(id, body as never);
+    const assistant = await registry.update(id, patch as Partial<AssistantConfig>);
     return c.json({ assistant });
   } catch (err) {
     if (err instanceof AssistantError) {
@@ -183,14 +151,9 @@ assistantRoutes.post("/:id/disable", async (c) => {
 
 assistantRoutes.post("/:id/enabled", async (c) => {
   const id = c.req.param("id");
-  let body: unknown;
-  try {
-    body = await c.req.json();
-  } catch {
-    return c.json({ error: "Invalid JSON" }, 400);
-  }
-  const enabled = (body as Record<string, unknown>)?.enabled;
-  if (typeof enabled !== "boolean") return c.json({ error: "enabled must be boolean" }, 400);
+  const toggle = await parseBody(c, enabledToggleValidator);
+  if (toggle instanceof Response) return toggle;
+  const enabled = toggle.enabled;
   const registry = getRegistry();
   try {
     const assistant = await registry.setEnabled(id, enabled);
