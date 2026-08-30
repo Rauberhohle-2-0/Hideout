@@ -1,4 +1,5 @@
 import type { AssistantConfig, AssistantParameters } from "./types.ts";
+import type { SanitizerResult } from "../shared/validation.ts";
 
 const ID_RE = /^[a-z0-9][a-z0-9._-]{0,63}$/i;
 
@@ -91,7 +92,7 @@ export function validateAssistantParameters(p: unknown, path = "parameters"): st
   return errors;
 }
 
-export function validateAssistantConfig(config: unknown): { valid: boolean; errors: string[]; sanitized?: AssistantConfig } {
+export function validateAssistantConfig(config: unknown): SanitizerResult<AssistantConfig> {
   const errors: string[] = [];
   if (!config || typeof config !== "object" || Array.isArray(config)) {
     return { valid: false, errors: ["config must be an object"] };
@@ -151,7 +152,7 @@ export function validateAssistantConfig(config: unknown): { valid: boolean; erro
   if (c.updatedAt !== undefined && typeof c.updatedAt !== "string") errors.push("updatedAt must be string");
 
   const valid = errors.length === 0;
-  if (!valid) return { valid, errors };
+  if (!valid) return { valid: false, errors };
 
   const sanitized: AssistantConfig = {
     id: (c.id as string).trim(),
@@ -167,7 +168,7 @@ export function validateAssistantConfig(config: unknown): { valid: boolean; erro
     ...(typeof c.updatedAt === "string" ? { updatedAt: c.updatedAt } : {}),
   };
 
-  return { valid, errors, sanitized };
+  return { valid: true, errors, sanitized };
 }
 
 function sanitizeParameters(p: AssistantParameters): AssistantParameters {

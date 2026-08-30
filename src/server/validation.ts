@@ -3,6 +3,7 @@ import type { AssistantConfig } from "../assistants/types.ts";
 import { validateAssistantConfig } from "../assistants/validation.ts";
 import type { McpServerConfig } from "../mcp/types.ts";
 import { validateMcpServerConfig } from "../mcp/validation.ts";
+import type { SanitizerResult } from "../shared/validation.ts";
 
 /**
  * Generic request-body validation for the interface <-> sidecar layer.
@@ -18,14 +19,14 @@ export interface Validator<T> {
   parse(input: unknown): Validation<T>;
 }
 
-/** Wrap the existing `{ valid, errors, sanitized }` validators into `Validation`. */
+/** Wrap the domain validators (SanitizerResult) into the shared Validation shape. */
 export function fromSanitizer<T>(
-  fn: (input: unknown) => { valid: boolean; errors: string[]; sanitized?: T },
+  fn: (input: unknown) => SanitizerResult<T>,
 ): Validator<T> {
   return {
     parse(input) {
       const r = fn(input);
-      if (r.valid && r.sanitized) return { ok: true, value: r.sanitized };
+      if (r.valid) return { ok: true, value: r.sanitized };
       return { ok: false, errors: r.errors };
     },
   };

@@ -179,7 +179,7 @@ export class McpRegistry {
   async add(config: McpServerConfig): Promise<McpServerSafe> {
     const v = validateMcpServerConfig(config);
     if (!v.valid) throw new McpConfigError(v.errors.join("; "));
-    const sanitized = v.sanitized!;
+    const sanitized = v.sanitized;
 
     const m = this.loadCache();
     if (m.has(sanitized.id)) throw new McpError(`MCP server already exists: ${sanitized.id}`, "ALREADY_EXISTS");
@@ -201,7 +201,7 @@ export class McpRegistry {
   async upsert(config: McpServerConfig): Promise<McpServerSafe> {
     const v = validateMcpServerConfig(config);
     if (!v.valid) throw new McpConfigError(v.errors.join("; "));
-    const sanitized = v.sanitized!;
+    const sanitized = v.sanitized;
 
     const m = this.loadCache();
     const existing = m.get(sanitized.id);
@@ -316,7 +316,7 @@ export class McpRegistry {
 
     const v = validateMcpServerConfig(merged);
     if (!v.valid) throw new McpConfigError(v.errors.join("; "));
-    const sanitized = v.sanitized!;
+    const sanitized = v.sanitized;
 
     // Remove old secrets for keys that were deleted
     await deleteSecretsForServer(id, existing, this.store).catch(() => {});
@@ -352,7 +352,7 @@ export class McpRegistry {
     // validate updated config (ensures other fields still valid)
     const v = validateMcpServerConfig(updated);
     if (!v.valid) throw new McpConfigError(v.errors.join("; "));
-    const sanitized = v.sanitized!;
+    const sanitized = v.sanitized;
     m.set(id, sanitized);
     this.flushCache();
     logger.info(`${enabled ? "Enabled" : "Disabled"} MCP server: ${id}`);

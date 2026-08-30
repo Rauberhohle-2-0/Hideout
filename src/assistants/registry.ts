@@ -150,7 +150,7 @@ function readPerFileStore(): Record<string, AssistantConfig> {
           continue;
         }
         // Use sanitized or original? Use sanitized to normalize
-        const cfg = v.sanitized ?? parsed;
+        const cfg = v.sanitized;
         map[cfg.id] = cfg;
       }
     } catch (err) {
@@ -187,7 +187,7 @@ function migrateSingleFileIfNeeded(): Record<string, AssistantConfig> | null {
       try {
         // Ensure config is validated/sanitized before writing
         const v = validateAssistantConfig(cfg);
-        const toWrite = v.valid && v.sanitized ? v.sanitized : cfg;
+        const toWrite = v.valid ? v.sanitized : cfg;
         // Ensure id matches key (defensive)
         if (toWrite.id !== id) toWrite.id = id;
         writeAssistantFile(toWrite.id, toWrite);
@@ -251,7 +251,7 @@ export class AssistantRegistry {
   async add(config: AssistantConfig): Promise<AssistantSafe> {
     const v = validateAssistantConfig(config);
     if (!v.valid) throw new AssistantConfigError(v.errors.join("; "));
-    const sanitized = v.sanitized!;
+    const sanitized = v.sanitized;
 
     const m = this.loadCache();
     if (m.has(sanitized.id)) throw new AssistantError(`Assistant already exists: ${sanitized.id}`, "ALREADY_EXISTS");
@@ -269,7 +269,7 @@ export class AssistantRegistry {
   async upsert(config: AssistantConfig): Promise<AssistantSafe> {
     const v = validateAssistantConfig(config);
     if (!v.valid) throw new AssistantConfigError(v.errors.join("; "));
-    const sanitized = v.sanitized!;
+    const sanitized = v.sanitized;
 
     const m = this.loadCache();
     const existing = m.get(sanitized.id);
@@ -314,7 +314,7 @@ export class AssistantRegistry {
 
     const v = validateAssistantConfig(merged);
     if (!v.valid) throw new AssistantConfigError(v.errors.join("; "));
-    const sanitized = v.sanitized!;
+    const sanitized = v.sanitized;
     sanitized.createdAt = existing.createdAt;
     sanitized.updatedAt = new Date().toISOString();
 

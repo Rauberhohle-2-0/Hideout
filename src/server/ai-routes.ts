@@ -114,7 +114,7 @@ aiRoutes.get("/providers", async (c) => {
     kind: p.kind,
     capabilities: p.getCapabilities(),
     // safe config (no secrets)
-    config: (p as unknown as { getConfig?: () => unknown }).getConfig?.() ?? { id: p.id },
+    config: p.getConfig(),
   }));
   return c.json({ providers });
 });

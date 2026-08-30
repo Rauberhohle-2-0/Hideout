@@ -104,6 +104,11 @@ export interface AiProvider {
 
   getCapabilities(): AiProviderCapabilities;
 
+  /** Safe config (secrets omitted) for reads. */
+  getConfig(): Readonly<AiProviderConfig>;
+  /** Patch config in place (e.g. to apply a hydrated secret). */
+  updateConfig(patch: Partial<AiProviderConfig>): void;
+
   /** Validate config without making network calls (URL shape, required fields) */
   validateConfig(config: AiProviderConfig): { valid: boolean; errors: string[] };
 

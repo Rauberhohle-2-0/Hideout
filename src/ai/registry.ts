@@ -60,8 +60,7 @@ export class AiRegistry {
       const apiKey = await this.store.get(`ai:${p.id}:apiKey`).catch(() => null);
       if (apiKey) {
         // Patch via (BaseProvider).updateConfig if available
-        const maybe = p as unknown as { updateConfig?: (patch: Partial<AiProviderConfig>) => void };
-        maybe.updateConfig?.({ apiKey });
+        p.updateConfig({ apiKey });
       }
     }
   }

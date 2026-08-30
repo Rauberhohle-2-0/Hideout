@@ -1,11 +1,12 @@
 import type { McpServerConfig } from "./types.ts";
+import type { SanitizerResult } from "../shared/validation.ts";
 
 const ID_RE = /^[a-z0-9][a-z0-9._-]{0,63}$/i;
 const COMMAND_RE = /^[a-zA-Z0-9._\/\-]+$/;
 // Allowlist for common MCP launchers — we warn but don't hard-block unknown commands for power users
 const KNOWN_COMMANDS = new Set(["npx", "uvx", "node", "bun", "deno", "python", "python3", "pnpm", "yarn", "bunx"]);
 
-export function validateMcpServerConfig(config: unknown): { valid: boolean; errors: string[]; sanitized?: McpServerConfig } {
+export function validateMcpServerConfig(config: unknown): SanitizerResult<McpServerConfig> {
   const errors: string[] = [];
   if (!config || typeof config !== "object" || Array.isArray(config)) {
     return { valid: false, errors: ["config must be an object"] };
@@ -116,7 +117,7 @@ export function validateMcpServerConfig(config: unknown): { valid: boolean; erro
   }
 
   const valid = errors.length === 0;
-  if (!valid) return { valid, errors };
+  if (!valid) return { valid: false, errors };
 
   // Build sanitized
   const sanitized: McpServerConfig = {
@@ -149,7 +150,7 @@ export function validateMcpServerConfig(config: unknown): { valid: boolean; erro
     // we don't add to errors, just could log — caller can check
   }
 
-  return { valid, errors, sanitized };
+  return { valid: true, errors, sanitized };
 }
 
 export function isSensitiveEnvKey(key: string): boolean {
