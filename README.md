@@ -114,7 +114,7 @@ ELECTRON_OPEN_DEVTOOLS=1 NODE_ENV=development npm start
 | `npm run dev` | Build and launch Electron; currently equivalent to `npm start`. |
 | `npm run build` | Typecheck/compile TypeScript, copy the renderer HTML, and generate the sandbox preload bundle. |
 | `npm run typecheck` | Run TypeScript checking without emitting build files. |
-| `npm run dev:watch` | Run TypeScript in watch mode. Relaunch Electron after changes when needed. |
+| `npm run dev:watch` | Run TypeScript in watch mode (recompile on change; relaunch Electron manually). |
 | `npm test` | Run the Bun test suite. |
 
 ## Project layout
@@ -123,43 +123,60 @@ ELECTRON_OPEN_DEVTOOLS=1 NODE_ENV=development npm start
 .
 ├── src/
 │   ├── ai/             AI provider types, registry, Ollama provider, and secure storage
-│   ├── assistants/     Assistant configuration types, validation, and persistence
-│   ├── main/           Electron main-process lifecycle and IPC handlers
-│   ├── mcp/            MCP types, validation, persistence, and connection management
-│   ├── preload/        Context-bridge API exposed to the renderer
-│   ├── renderer/       Desktop UI HTML and renderer TypeScript
-│   ├── server/         Hono app, routes, and localhost server lifecycle
-│   ├── shared/         IPC channels, API contracts, and shared path helpers
+│   │   └── providers/  Concrete providers (Ollama)
+│   ├── assistants/     Assistant configuration types, validation, registry, and disk persistence
+│   ├── main/           Electron main-process lifecycle, window creation, and IPC handlers
+│   ├── mcp/            MCP types, validation, registry, secure helpers, and connection manager
+│   ├── preload/        Context-bridge API exposed to the renderer (sandbox-safe, CJS-built)
+│   ├── renderer/       Desktop UI HTML and renderer TypeScript (AI / MCP / Assistant cards + dialogs)
+│   ├── server/         Hono app, AI/MCP/Assistant routes, and localhost server lifecycle
+│   ├── shared/         IPC channels, API contracts, and cross-platform path helpers
 │   ├── index.ts        Small Hello World entry point used by the unit test
-│   └── logger.ts       Configurable colored logger
+│   └── logger.ts       Configurable colored logger with redaction
 ├── scripts/
-│   └── build-preload-cjs.mjs  Converts the compiled preload to sandbox-compatible CommonJS
-├── test/               Bun tests
-├── package.json        Scripts and dependencies
-├── tsconfig.json       Strict TypeScript configuration
+│   └── build-preload-cjs.mjs  Converts the compiled ESM preload to sandbox-compatible CommonJS
+├── test/               Bun tests (Bun test runner)
+├── package.json        Scripts and dependencies (type: module, Electron 44, Hono 4)
+├── tsconfig.json       Strict TypeScript configuration (ESNext, bundler resolution)
 ├── bunfig.toml         Bun test configuration
-└── .env.example        Environment variable reference
+└── .env.example        Environment variable reference (loopback defaults)
 ```
 
 ## Local HTTP API
 
-The embedded Hono server is local-only by default. Once the app is running, these basic endpoints are available at `http://127.0.0.1:3000`:
+The embedded Hono server is local-only by default. Once the app is running, these endpoints are available at `http://127.0.0.1:3000` (all JSON unless noted; writes are rate-limited to 60 req/min per IP):
 
-- `GET /` — returns `Hello World`.
+- `GET /` — returns `Hello World` as plain text.
 - `GET /health` — returns a JSON health response.
 - `GET /api/hello` — returns the Hello World message as JSON.
-- `GET /api/ai/providers` — lists configured AI providers.
+- `GET /api/ai/providers` — lists configured AI providers (safe config, no secrets).
 - `GET /api/ai/providers/:id/health` — checks an AI provider.
 - `GET /api/ai/providers/:id/models` — lists provider models.
-- `POST /api/ai/chat` — sends a non-streaming chat request.
-- `POST /api/ai/chat/stream` — sends a streaming chat request using server-sent events.
-- `GET /api/mcp/servers` — lists MCP servers with secrets redacted.
+- `POST /api/ai/chat` — sends a non-streaming chat request (supports `assistantId` adherence).
+- `POST /api/ai/chat/stream` — sends a streaming chat request using server-sent events (`event: delta` / `done` / `error`).
+- `GET /api/mcp/servers` — lists MCP servers with secrets redacted (`"***"`).
+- `GET /api/mcp/servers/:id` — gets one MCP server (safe).
+- `POST /api/mcp/servers` — creates an MCP server.
+- `PUT /api/mcp/servers/:id` — creates or replaces an MCP server.
+- `PATCH /api/mcp/servers/:id` — partially updates an MCP server.
+- `DELETE /api/mcp/servers/:id` — removes an MCP server.
+- `POST /api/mcp/servers/:id/enable` — enables a server.
+- `POST /api/mcp/servers/:id/disable` — disables a server (also disconnects).
+- `POST /api/mcp/servers/:id/enabled` — toggles enabled state (`{ enabled: boolean }`).
 - `GET /api/mcp/servers/:id/health` — checks an MCP server.
 - `POST /api/mcp/servers/:id/connect` — connects/checks an MCP server.
 - `POST /api/mcp/servers/:id/disconnect` — disconnects an MCP server.
 - `GET /api/mcp/servers/:id/tools` — lists known tools.
+- `GET /api/mcp/presets/exa` — returns the seeded Exa preset (safe + raw).
 - `GET /api/assistants` — lists assistants.
 - `GET /api/assistants/:id` — gets one assistant.
+- `POST /api/assistants` — creates an assistant.
+- `PUT /api/assistants/:id` — creates or replaces an assistant.
+- `PATCH /api/assistants/:id` — partially updates an assistant.
+- `DELETE /api/assistants/:id` — removes an assistant.
+- `POST /api/assistants/:id/enable` — enables an assistant.
+- `POST /api/assistants/:id/disable` — disables an assistant.
+- `POST /api/assistants/:id/enabled` — toggles enabled state (`{ enabled: boolean }`).
 
 For complete request and response shapes, see the route files in `src/server/` and the shared contracts in `src/shared/api.ts`.
 
@@ -213,16 +230,16 @@ Copy `.env.example` to review the available settings. The main options are:
 | Variable | Default | Description |
 | --- | --- | --- |
 | `HONO_PORT` | `3000` | Local Hono server port. `PORT` is accepted as a fallback. |
-| `HONO_HOSTNAME` | `127.0.0.1` | Hono bind hostname. |
+| `HONO_HOSTNAME` | `127.0.0.1` | Hono bind hostname (keep at loopback). |
 | `OLLAMA_BASE_URL` | `http://127.0.0.1:11434` | Ollama endpoint. `AI_OLLAMA_BASE_URL` is also accepted. |
-| `HIDEOUT_SECRET_AI_OLLAMA_APIKEY` | unset | Ephemeral development API key for a proxied Ollama endpoint; prefer the OS keychain/UI. |
-| `HIDEOUT_SECRET_MCP_*` | unset | Ephemeral development overrides for MCP secrets; not persisted. |
-| `HIDEOUT_MCP_STORE_DIR` | platform data directory | Override MCP storage for tests/portable use. |
-| `HIDEOUT_SECURE_STORE_DIR` | platform data directory | Override secure storage for tests/portable use. |
-| `HIDEOUT_ASSISTANT_STORE_DIR` | platform data directory | Override assistant storage for tests/portable use. |
-| `LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARN`, `ERROR`, or `SILENT`. |
-| `NO_COLOR` | unset | Set this variable to disable colored logs. |
-| `ELECTRON_OPEN_DEVTOOLS` | unset | Set to `1` to open DevTools outside production. |
+| `HIDEOUT_SECRET_AI_OLLAMA_APIKEY` | unset | Ephemeral dev API key for a proxied Ollama endpoint; prefer the OS keychain/secure store. |
+| `HIDEOUT_SECRET_MCP_*` | unset | Ephemeral dev overrides for MCP secrets (`HIDEOUT_SECRET_MCP_<ID>_ENV_<VAR>` / `HEADER_<NAME>`); not persisted. |
+| `HIDEOUT_MCP_STORE_DIR` | platform data directory | Override MCP storage dir for tests/portable use. Falls back to `HIDEOUT_SECURE_STORE_DIR` if set. |
+| `HIDEOUT_SECURE_STORE_DIR` | platform data directory | Override secure-storage dir for tests/portable use. |
+| `HIDEOUT_ASSISTANT_STORE_DIR` | platform data directory | Override assistant storage dir. Falls back to `HIDEOUT_MCP_STORE_DIR` / `HIDEOUT_SECURE_STORE_DIR`. |
+| `LOG_LEVEL` | `INFO` (defaults to `DEBUG` when unset — see `src/logger.ts:58`) | `DEBUG`, `INFO`, `WARN`, `ERROR`, or `SILENT`. |
+| `NO_COLOR` | unset | Set to any value to disable colored logs. `FORCE_COLOR=1` forces color. |
+| `ELECTRON_OPEN_DEVTOOLS` | unset | Set to `1` (with `NODE_ENV != production`) to open Chromium DevTools. |
 
 ## Data and security
 
