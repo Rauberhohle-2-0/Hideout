@@ -1,14 +1,20 @@
 /**
- * Secure credential store — wraps Electron safeStorage (OS keychain:
- * Keychain on macOS, DPAPI on Windows, libsecret on Linux).
+ * Secure credential store — AES-256-GCM at rest, keyed by a master key that
+ * lives in the OS keychain (Keychain on macOS, Credential Manager on Windows,
+ * Secret Service on Linux).
  *
  * SECURITY MODEL:
- * - Only the Main process may call set/get — renderer never sees raw secrets.
- * - Values are encrypted at rest via `safeStorage.encryptString`.
+ * - Only the sidecar process may call set/get. The webview never sees a
+ *   provider credential; it holds the master key alone, and only long enough
+ *   to hand it to this process at spawn time.
+ * - Values are encrypted with AES-256-GCM under that key. GCM is
+ *   authenticated, so a tampered file fails to decrypt rather than returning
+ *   attacker-chosen plaintext.
  * - On disk they live in an app-scoped file with 0o600 permissions.
- * - Fallback (tests / non-Electron): encrypted file is NOT available, so we
- *   use env vars or an in-memory store and warn. Secrets are still redacted
- *   by the logger.
+ * - Without a master key (unit tests), set/get fall back to env vars and an
+ *   in-memory store, and nothing is written to disk. There is deliberately no
+ *   unencrypted file path: a store that silently degrades to plaintext is
+ *   worse than one that refuses.
  * - ALL keys are validated to prevent path traversal.
  */
 
@@ -30,6 +36,9 @@ function validateKey(key: string): void {
 }
 
 function getStoreDir(): string {
+  // shared/paths.ts is the single source of truth for store locations: it
+  // keeps the Electron userData path (so existing installs keep their data
+  // after the Vantail migration) and handles the HIDEOUT_*_STORE_DIR overrides.
   return getSecureStoreDir();
 }
 
@@ -47,32 +56,52 @@ function storeFilePath(): string {
   return path.join(resolveStoreDir(), "secure-store.enc.json");
 }
 
-// ---- Electron safeStorage lazy binding ----
-// We do not import electron at top-level so this module is importable in
-// Bun tests / Hono server without Electron.
+// ---- Master key + AES-256-GCM ----
+// The key is supplied by the webview at spawn time (HIDEOUT_MASTER_KEY) and
+// held in memory only. It is never written next to the data it protects.
 
-type SafeStorageLike = {
-  isEncryptionAvailable(): boolean;
-  encryptString(plainText: string): Buffer;
-  decryptString(encrypted: Buffer): string;
-};
+const IV_BYTES = 12; // GCM standard nonce length
+const TAG_BYTES = 16;
 
-let cachedSafeStorage: SafeStorageLike | null | undefined;
+let masterKey: Buffer | null = null;
 
-function getSafeStorage(): SafeStorageLike | null {
-  if (cachedSafeStorage !== undefined) return cachedSafeStorage;
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const electron = require("electron") as { safeStorage?: SafeStorageLike };
-    if (electron?.safeStorage?.isEncryptionAvailable?.()) {
-      cachedSafeStorage = electron.safeStorage;
-      return cachedSafeStorage;
-    }
-  } catch {
-    // not in Electron or safeStorage unavailable
+/** Install the base64-encoded 32-byte key this process encrypts under. */
+export function setMasterKey(base64Key: string): void {
+  const key = Buffer.from(base64Key, "base64");
+  if (key.length !== 32) {
+    throw new Error(`Master key must be 32 bytes, got ${key.length}`);
   }
-  cachedSafeStorage = null;
-  return null;
+  masterKey = key;
+}
+
+/** Test seam: drop the key so the in-memory fallback is exercised. */
+export function clearMasterKey(): void {
+  masterKey = null;
+}
+
+function encrypt(plaintext: string, key: Buffer): string {
+  const iv = crypto.randomBytes(IV_BYTES);
+  const cipher = crypto.createCipheriv("aes-256-gcm", key, iv);
+  const ciphertext = Buffer.concat([cipher.update(plaintext, "utf-8"), cipher.final()]);
+  // iv || tag || ciphertext — a self-describing blob, so the format needs no
+  // separate metadata that could drift out of sync with the data.
+  return Buffer.concat([iv, cipher.getAuthTag(), ciphertext]).toString("base64");
+}
+
+function decrypt(blob: string, key: Buffer): string | null {
+  try {
+    const buf = Buffer.from(blob, "base64");
+    if (buf.length < IV_BYTES + TAG_BYTES) return null;
+    const iv = buf.subarray(0, IV_BYTES);
+    const tag = buf.subarray(IV_BYTES, IV_BYTES + TAG_BYTES);
+    const ciphertext = buf.subarray(IV_BYTES + TAG_BYTES);
+    const decipher = crypto.createDecipheriv("aes-256-gcm", key, iv);
+    decipher.setAuthTag(tag);
+    return Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString("utf-8");
+  } catch {
+    // Wrong key, or a file someone edited. Either way there is no plaintext.
+    return null;
+  }
 }
 
 // ---- Fallback: env var and in-memory (for tests) ----
@@ -165,8 +194,8 @@ export interface SecureStore {
 }
 
 /**
- * File-backed store encrypted via Electron safeStorage when available.
- * This is the default for production (Main process).
+ * File-backed store, encrypted under the master key.
+ * This is the default for production (the sidecar process).
  */
 export const fileSecureStore: SecureStore = {
   async set(key: string, value: string): Promise<void> {
@@ -174,26 +203,16 @@ export const fileSecureStore: SecureStore = {
     if (Buffer.byteLength(value, "utf-8") > MAX_VALUE_BYTES) {
       throw new Error(`Secret too large for key ${key}`);
     }
-    // Prefer env override for dev? No — env is read-only fallback for get().
-    const ss = getSafeStorage();
-    if (ss) {
-      const encrypted = ss.encryptString(value);
-      const b64 = encrypted.toString("base64");
-      const data = readFileStore();
-      data[key] = b64;
-      writeFileStore(data);
+    if (!masterKey) {
+      // No key means no safe way to persist. Keep it for this process only and
+      // say so, rather than writing something that merely looks encrypted.
+      logger.warn("No master key — secret kept in memory for this process only");
+      memStore.set(key, value);
       return;
     }
-    // Fallback: store base64-encoded (NOT encrypted) but with 0o600 file perms.
-    // Warn once — this is only for dev/tests where safeStorage is unavailable.
-    logger.warn("safeStorage unavailable — storing secret with file permissions only (dev/test mode)");
     const data = readFileStore();
-    // Use a reversible obfuscation so plain JSON isn't trivially readable;
-    // this is NOT real encryption, just defense-in-depth for dev.
-    data[key] = Buffer.from(value, "utf-8").toString("base64");
-    (data as Record<string, string>)[`__plain_${key}`] = "1";
+    data[key] = encrypt(value, masterKey);
     writeFileStore(data);
-    // Also keep in memory for current process
     memStore.set(key, value);
   },
 
@@ -206,27 +225,17 @@ export const fileSecureStore: SecureStore = {
       return process.env[envName] ?? null;
     }
     if (memStore.has(key)) return memStore.get(key) ?? null;
+    if (!masterKey) return null;
 
-    const data = readFileStore();
-    const b64 = data[key];
-    if (!b64) return null;
-    const isPlain = data[`__plain_${key}`] === "1";
-    const ss = getSafeStorage();
-    if (ss && !isPlain) {
-      try {
-        const buf = Buffer.from(b64, "base64");
-        return ss.decryptString(buf);
-      } catch (err) {
-        logger.error(`Failed to decrypt key ${key}: ${(err as Error).message}`);
-        return null;
-      }
-    }
-    // Fallback plain base64
-    try {
-      return Buffer.from(b64, "base64").toString("utf-8");
-    } catch {
+    const blob = readFileStore()[key];
+    if (!blob) return null;
+
+    const plaintext = decrypt(blob, masterKey);
+    if (plaintext === null) {
+      logger.error(`Failed to decrypt key ${key} — wrong master key or tampered store`);
       return null;
     }
+    return plaintext;
   },
 
   async delete(key: string): Promise<void> {
@@ -235,7 +244,6 @@ export const fileSecureStore: SecureStore = {
     const data = readFileStore();
     if (data[key] === undefined) return;
     delete data[key];
-    delete data[`__plain_${key}`];
     writeFileStore(data);
   },
 

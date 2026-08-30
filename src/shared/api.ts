@@ -1,33 +1,12 @@
-/** Shared types and constants between Main, Preload and Renderer - security boundary types. */
+/**
+ * Shared types between the interface and the sidecar — the wire contract.
+ *
+ * `Api` is deliberately unchanged from the Electron IPC era: the interface
+ * calls the same methods, and only the transport underneath differs (see
+ * src/renderer/api-client.ts). No secret appears in any type here.
+ */
 
 export const HELLO_WORLD = "Hello World";
-
-export const IPC_CHANNELS = {
-  HELLO_WORLD: "hello-world",
-  PING: "ping",
-  AI_LIST_PROVIDERS: "ai:list-providers",
-  AI_HEALTH: "ai:health",
-  AI_LIST_MODELS: "ai:list-models",
-  AI_CHAT: "ai:chat",
-  MCP_LIST_SERVERS: "mcp:list-servers",
-  MCP_GET_SERVER: "mcp:get-server",
-  MCP_ADD_SERVER: "mcp:add-server",
-  MCP_UPDATE_SERVER: "mcp:update-server",
-  MCP_REMOVE_SERVER: "mcp:remove-server",
-  MCP_HEALTH: "mcp:health",
-  MCP_LIST_TOOLS: "mcp:list-tools",
-  MCP_CONNECT: "mcp:connect",
-  MCP_DISCONNECT: "mcp:disconnect",
-  MCP_SET_ENABLED: "mcp:set-enabled",
-  ASSISTANT_LIST: "assistant:list",
-  ASSISTANT_GET: "assistant:get",
-  ASSISTANT_ADD: "assistant:add",
-  ASSISTANT_UPDATE: "assistant:update",
-  ASSISTANT_REMOVE: "assistant:remove",
-  ASSISTANT_SET_ENABLED: "assistant:set-enabled",
-} as const;
-
-export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS];
 
 // Shared AI wire types — no secrets ever cross this boundary
 export interface AiProviderInfo {
@@ -139,7 +118,7 @@ export interface McpAddServerRequest {
   sse?: { url: string; headers?: Record<string, string>; timeoutSeconds?: number };
 }
 
-/** Minimal API exposed to renderer via contextBridge */
+/** The surface the interface calls. Implemented over HTTP in src/renderer/api-client.ts. */
 export interface Api {
   getHelloWorld(): Promise<string>;
   ping(): Promise<string>;

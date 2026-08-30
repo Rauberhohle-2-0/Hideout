@@ -91,7 +91,15 @@ export class McpManager {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
-        reject(new McpError(`STDIO command failed: ${(err as NodeJS.ErrnoException).code ?? err.message}`, "CONNECTION_FAILED", err));
+        const code = (err as NodeJS.ErrnoException).code;
+        // ENOENT here means the command is not on PATH, which is a different
+        // problem from a server that starts and misbehaves — and the one a
+        // user can actually act on. Name the command rather than the errno.
+        const message =
+          code === "ENOENT"
+            ? `Command not found: ${stdio.command}. Check it is installed and on your PATH.`
+            : `STDIO command failed: ${code ?? err.message}`;
+        reject(new McpError(message, "CONNECTION_FAILED", err));
       });
 
       child.on("spawn", () => {
