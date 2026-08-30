@@ -33,6 +33,11 @@ export default defineConfig({
     // identifier, so no other application can read it.
     secrets: true,
 
+    // Native dialogs — the confirm step that gates adding an MCP server. The
+    // OS dialog is the trustworthy consent boundary: page content cannot
+    // spoof it, unlike an in-page dialog.
+    dialog: true,
+
     filesystem: {
       // Only to confirm the sidecar binary is present before spawning it.
       read: ["$RESOURCE/**"],

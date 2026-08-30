@@ -7,6 +7,8 @@ import type {
   McpAddServerRequest,
   McpServerSafe,
 } from "../shared/api.ts";
+// Alias avoids the local `dialog` HTML element inside the dialog setup functions.
+import { dialog as vantailDialog } from "@vantail/api";
 
 declare global {
   interface Window {
@@ -1009,68 +1011,6 @@ function setupMcpDialog(): void {
   transportEl.addEventListener("change", updateTransportFields);
   updateTransportFields();
 
-  // ---- confirmation step -------------------------------------------------
-  // New servers are not persisted on submit: the user first reviews a summary
-  // of exactly what will be spawned / connected to, then confirms explicitly.
-  const confirmBox = el("div", "mcp-confirm");
-  confirmBox.hidden = true;
-  const confirmHeading = el("h3", "mcp-confirm-title", "Review this MCP server");
-  const confirmWarn = el("div", "mcp-confirm-warn");
-  const confirmSummary = el("pre", "mcp-confirm-summary");
-  const confirmError = el("div", "form-error");
-  confirmError.hidden = true;
-  const confirmFoot = el("div", "dialog-foot");
-  const backBtn = el("button", "btn") as HTMLButtonElement;
-  backBtn.type = "button";
-  backBtn.textContent = "Back to form";
-  const confirmBtn = el("button", "btn btn-primary") as HTMLButtonElement;
-  confirmBtn.type = "button";
-  confirmBtn.textContent = "Confirm & add";
-  confirmFoot.append(backBtn, confirmBtn);
-  confirmBox.append(confirmHeading, confirmWarn, confirmSummary, confirmError, confirmFoot);
-  dialog.append(confirmBox);
-
-  let pendingPayload: McpAddServerRequest | null = null;
-
-  function showConfirm(payload: McpAddServerRequest): void {
-    pendingPayload = payload;
-    confirmWarn.textContent =
-      payload.transport === "stdio"
-        ? "This will run the command above on your machine. An MCP server can execute arbitrary code and read your files — only continue if you trust this server."
-        : "This will connect to the URL above and send the configured headers. Only continue if you trust this server.";
-    confirmSummary.textContent = buildMcpSummary(payload);
-    confirmError.textContent = "";
-    confirmError.hidden = true;
-    if (dialogTitle) dialogTitle.textContent = "Confirm MCP server";
-    form!.hidden = true;
-    confirmBox.hidden = false;
-  }
-
-  function backToForm(): void {
-    pendingPayload = null;
-    confirmBox.hidden = true;
-    form!.hidden = false;
-    confirmError.textContent = "";
-    confirmError.hidden = true;
-    setDialogMode(editingMcpId !== null ? "edit" : "add");
-  }
-
-  confirmBtn.addEventListener("click", async () => {
-    if (!pendingPayload) return;
-    confirmBtn.disabled = true;
-    try {
-      await window.api.mcpAddServer(pendingPayload);
-      pendingPayload = null;
-      close();
-      await loadMcpServers();
-    } catch (err) {
-      confirmError.textContent = errorText(err);
-      confirmError.hidden = false;
-      confirmBtn.disabled = false;
-    }
-  });
-  backBtn.addEventListener("click", backToForm);
-
   function setDialogMode(mode: "add" | "edit"): void {
     if (dialogTitle) dialogTitle.textContent = mode === "edit" ? "Edit MCP Server" : "Add MCP Server";
     if (submitBtn) submitBtn.textContent = mode === "edit" ? "Save changes" : "Add server";
@@ -1087,9 +1027,6 @@ function setupMcpDialog(): void {
     transportEl!.value = "stdio";
     updateTransportFields();
     // default enabled true handled by form reset
-    pendingPayload = null;
-    confirmBox.hidden = true;
-    form!.hidden = false;
     if (typeof dialog!.showModal === "function") dialog!.showModal();
     else (dialog as unknown as { open: boolean }).open = true;
   }
@@ -1097,9 +1034,6 @@ function setupMcpDialog(): void {
   function openForEdit(server: McpServerSafe): void {
     editingMcpId = server.id;
     setDialogMode("edit");
-    pendingPayload = null;
-    confirmBox.hidden = true;
-    form!.hidden = false;
     if (errBox) { errBox.textContent = ""; errBox.hidden = true; }
     form!.reset();
     // Populate common fields
@@ -1166,11 +1100,8 @@ function setupMcpDialog(): void {
     if (typeof dialog!.close === "function") {
       try { dialog!.close(); } catch { dialog!.removeAttribute("open"); }
     } else dialog!.removeAttribute("open");
-    // reset edit + confirm state after close
+    // reset edit state after close
     editingMcpId = null;
-    pendingPayload = null;
-    confirmBox.hidden = true;
-    form!.hidden = false;
     if (idInput) idInput.disabled = false;
     transportEl!.disabled = false;
     setDialogMode("add");
@@ -1188,9 +1119,6 @@ function setupMcpDialog(): void {
     editingMcpId = null;
     if (idInput) idInput.disabled = false;
     transportEl!.disabled = false;
-    pendingPayload = null;
-    confirmBox.hidden = true;
-    form!.hidden = false;
     setDialogMode("add");
   });
 
@@ -1292,12 +1220,33 @@ function setupMcpDialog(): void {
       }
     }
 
-    // New servers are not added directly: show a summary of exactly what will be
-    // spawned / connected to and require explicit confirmation first.
+    // New servers are not added directly: the user confirms through the OS
+    // native dialog, which cannot be spoofed by page content. Cancelling
+    // leaves the form open, so nothing is persisted or spawned.
     if (!isEdit) {
-      showConfirm(payload);
+      const summary = buildMcpSummary(payload);
+      const warning =
+        payload.transport === "stdio"
+          ? "This will run the command below on your machine. An MCP server can execute arbitrary code and read your files — only continue if you trust this server."
+          : "This will connect to the URL below and send the configured headers. Only continue if you trust this server.";
+      const ok = await vantailDialog.confirm(`${warning}\n\n${summary}`, {
+        title: "Confirm MCP server",
+        kind: "warning",
+        okLabel: "Add server",
+        cancelLabel: "Cancel",
+      });
       if (submitBtnEl) submitBtnEl.disabled = false;
-      return;
+      if (!ok) return;
+      try {
+        await window.api.mcpAddServer(payload);
+        close();
+        await loadMcpServers();
+        return;
+      } catch (err) {
+        const msg = errorText(err);
+        if (errBox) { errBox.textContent = msg; errBox.hidden = false; }
+        return;
+      }
     }
 
     try {
