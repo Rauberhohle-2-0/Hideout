@@ -145,6 +145,8 @@ function readLegacyFileStore(): EncryptedStoreFile | null {
   }
 }
 
+let storeReadCorrupt = false;
+
 function readFileStore(): EncryptedStoreFile {
   const fp = storeFilePath();
   if (fs.existsSync(fp)) {
@@ -152,11 +154,15 @@ function readFileStore(): EncryptedStoreFile {
       const raw = fs.readFileSync(fp, "utf-8");
       const parsed = JSON.parse(raw) as unknown;
       if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        storeReadCorrupt = false;
         return parsed as EncryptedStoreFile;
       }
+      // Valid JSON but not an object map — treat as corrupt rather than dropping data.
+      storeReadCorrupt = true;
       return {};
     } catch (err) {
       logger.warn(`Failed to read secure store file: ${(err as Error).message}`);
+      storeReadCorrupt = true;
       return {};
     }
   }
@@ -171,6 +177,18 @@ function readFileStore(): EncryptedStoreFile {
 function writeFileStore(data: EncryptedStoreFile): void {
   ensureDir();
   const fp = storeFilePath();
+  // A corrupt store was read this session: back it up rather than overwrite it,
+  // which would silently destroy every credential stored there.
+  if (storeReadCorrupt && fs.existsSync(fp)) {
+    const backup = `${fp}.corrupt.${Date.now()}`;
+    try {
+      fs.renameSync(fp, backup);
+      logger.error(`Secure store file was corrupt; backed it up to ${backup} before writing`);
+    } catch (err) {
+      logger.warn(`Could not back up corrupt secure store ${fp}: ${(err as Error).message}`);
+    }
+    storeReadCorrupt = false;
+  }
   const tmp = `${fp}.tmp.${crypto.randomBytes(4).toString("hex")}`;
   fs.writeFileSync(tmp, JSON.stringify(data, null, 2), { mode: 0o600 });
   try {

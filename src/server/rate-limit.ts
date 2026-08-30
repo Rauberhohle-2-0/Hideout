@@ -20,8 +20,9 @@ export function createRateLimiter(
   const buckets = new Map<string, { count: number; resetAt: number }>();
 
   const limiter: RateLimiter = (c) => {
-    const ip = c.req.header("x-forwarded-for") ?? c.req.header("x-real-ip") ?? "127.0.0.1";
-    const key = `${ip}:${group}`;
+    // Single-user app bound to loopback: treat every connection as one client and
+    // never trust spoofable proxy headers (x-forwarded-for / x-real-ip) to identify it.
+    const key = `loopback:${group}`;
     const now = Date.now();
     const cur = buckets.get(key);
     if (!cur || now > cur.resetAt) {

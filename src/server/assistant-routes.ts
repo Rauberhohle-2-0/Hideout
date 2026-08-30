@@ -88,6 +88,8 @@ assistantRoutes.put("/:id", async (c) => {
 
 // PATCH /api/assistants/:id — partial update
 assistantRoutes.patch("/:id", async (c) => {
+  const limited = rateLimit(c);
+  if (limited) return limited;
   const id = c.req.param("id");
   const patch = await parseBody(c, jsonObjectValidator);
   if (patch instanceof Response) return patch;
@@ -120,6 +122,8 @@ assistantRoutes.delete("/:id", async (c) => {
 
 // POST /api/assistants/:id/enable — enable/disable toggles
 assistantRoutes.post("/:id/enable", async (c) => {
+  const limited = rateLimit(c);
+  if (limited) return limited;
   const id = c.req.param("id");
   const registry = getRegistry();
   try {
@@ -135,6 +139,8 @@ assistantRoutes.post("/:id/enable", async (c) => {
 });
 
 assistantRoutes.post("/:id/disable", async (c) => {
+  const limited = rateLimit(c);
+  if (limited) return limited;
   const id = c.req.param("id");
   const registry = getRegistry();
   try {
@@ -150,6 +156,8 @@ assistantRoutes.post("/:id/disable", async (c) => {
 });
 
 assistantRoutes.post("/:id/enabled", async (c) => {
+  const limited = rateLimit(c);
+  if (limited) return limited;
   const id = c.req.param("id");
   const toggle = await parseBody(c, enabledToggleValidator);
   if (toggle instanceof Response) return toggle;

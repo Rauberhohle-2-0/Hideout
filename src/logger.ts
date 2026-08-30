@@ -46,7 +46,7 @@ const ANSI_REGEX = /\x1b\[[0-9;]*m/g;
 const CONTROL_CHARS_REGEX = /[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g;
 
 // Patterns that look like secrets - we redact their values
-const SENSITIVE_KEY_PATTERN = /(password|passwd|secret|token|api[_-]?key|auth|credential|private[_-]?key)/i;
+const SENSITIVE_KEY_PATTERN = /(password|passwd|secret|token|api[_-]?key|apikey|access[_-]?key|private[_-]?key|master[_-]?key|encryption[_-]?key|signing[_-]?key|session[_-]?key|auth|credential|passphrase|cookie|authorization|client[_-]?secret|key)/i;
 
 function shouldUseColor(): boolean {
   if (process.env.NO_COLOR !== undefined) return false;

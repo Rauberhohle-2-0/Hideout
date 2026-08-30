@@ -95,6 +95,8 @@ mcpRoutes.put("/servers/:id", async (c) => {
 
 // PATCH /api/mcp/servers/:id — partial update
 mcpRoutes.patch("/servers/:id", async (c) => {
+  const limited = rateLimit(c);
+  if (limited) return limited;
   const id = c.req.param("id");
   const patch = await parseBody(c, jsonObjectValidator);
   if (patch instanceof Response) return patch;
@@ -114,6 +116,8 @@ mcpRoutes.patch("/servers/:id", async (c) => {
 
 // POST /api/mcp/servers/:id/enable — enable server
 mcpRoutes.post("/servers/:id/enable", async (c) => {
+  const limited = rateLimit(c);
+  if (limited) return limited;
   const id = c.req.param("id");
   const registry = getRegistry();
   try {
@@ -130,6 +134,8 @@ mcpRoutes.post("/servers/:id/enable", async (c) => {
 
 // POST /api/mcp/servers/:id/disable — disable server (also disconnects)
 mcpRoutes.post("/servers/:id/disable", async (c) => {
+  const limited = rateLimit(c);
+  if (limited) return limited;
   const id = c.req.param("id");
   const registry = getRegistry();
   const manager = getManager();
@@ -148,6 +154,8 @@ mcpRoutes.post("/servers/:id/disable", async (c) => {
 
 // POST /api/mcp/servers/:id/enabled — generic toggle { enabled: boolean }
 mcpRoutes.post("/servers/:id/enabled", async (c) => {
+  const limited = rateLimit(c);
+  if (limited) return limited;
   const id = c.req.param("id");
   const toggle = await parseBody(c, enabledToggleValidator);
   if (toggle instanceof Response) return toggle;
@@ -192,6 +200,8 @@ mcpRoutes.get("/servers/:id/health", async (c) => {
 
 // POST /api/mcp/servers/:id/connect
 mcpRoutes.post("/servers/:id/connect", async (c) => {
+  const limited = rateLimit(c);
+  if (limited) return limited;
   const id = c.req.param("id");
   const registry = getRegistry();
   if (!registry.getSafe(id)) return c.json({ error: `MCP server not found: ${id}` }, 404);
@@ -250,7 +260,8 @@ mcpRoutes.post("/servers/:id/call", async (c) => {
 // GET /api/mcp/presets/exa — returns Exa preset (safe, no secrets)
 mcpRoutes.get("/presets/exa", async (c) => {
   const { EXA_MCP_PRESET } = await import("../mcp/types.ts");
-  // return safe (no secrets anyway)
+  // Safe form only — never echo the internal/raw config shape (nor anything a
+  // future secret-bearing preset would carry) back to clients.
   const { toSafeConfig } = await import("../mcp/secure-helpers.ts");
-  return c.json({ preset: toSafeConfig(EXA_MCP_PRESET) , raw: EXA_MCP_PRESET });
+  return c.json({ preset: toSafeConfig(EXA_MCP_PRESET) });
 });

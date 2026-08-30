@@ -154,9 +154,12 @@ export function validateMcpServerConfig(config: unknown): SanitizerResult<McpSer
 }
 
 export function isSensitiveEnvKey(key: string): boolean {
-  return /(api[_-]?key|secret|token|password|auth|credential|private[_-]?key)/i.test(key);
+  // Token-bounded so ACCESS_KEY_ID, *_PWD, *_KEY etc. count as secrets while a random
+  // substring match (e.g. MONKEY) does not. Erring on the side of "sensitive" is the
+  // safe direction: a misclassified value is only stored encrypted, never leakier.
+  return /(^|[^a-z0-9])(api[_-]?key|access[_-]?key|private[_-]?key|session[_-]?key|secret[_-]?key|encryption[_-]?key|signing[_-]?key|master[_-]?key|key|password|passwd|pwd|secret|passphrase|token|credential|sesame|cookie|auth)([^a-z0-9]|$)/i.test(key);
 }
 
 export function isSensitiveHeaderKey(key: string): boolean {
-  return /(authorization|api[_-]?key|x-api-key|token|secret|cookie)/i.test(key);
+  return /(^|[^a-z0-9])(authorization|proxy[_-]?authorization|api[_-]?key|apikey|access[_-]?key|token|secret|private[_-]?token|password|passwd|cookie|credential|session[_-]?id)([^a-z0-9]|$)/i.test(key);
 }
