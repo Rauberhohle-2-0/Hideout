@@ -197,15 +197,92 @@ export class McpRegistry {
     const existing = m.get(id);
     if (!existing) throw new McpError(`MCP server not found: ${id}`, "NOT_FOUND");
 
+    // Strip placeholder "***" values from patch — they mean "keep existing secret"
+    const sanitizedPatch: Partial<McpServerConfig> = { ...patch };
+    if (sanitizedPatch.stdio?.env) {
+      const filtered: Record<string, string> = {};
+      for (const [k, v] of Object.entries(sanitizedPatch.stdio.env)) {
+        if (v === "***") continue;
+        filtered[k] = v;
+      }
+      // If all were placeholders, omit env to preserve existing
+      if (Object.keys(filtered).length === 0 && Object.keys(sanitizedPatch.stdio.env).length > 0) {
+        const { env: _omit, ...restStdio } = sanitizedPatch.stdio;
+        (sanitizedPatch as McpServerConfig).stdio = restStdio as McpServerConfig["stdio"];
+        // patch had only placeholders -> treat as no env patch
+        if (Object.keys(restStdio).length === 0) delete (sanitizedPatch as Record<string, unknown>).stdio;
+        else sanitizedPatch.stdio = restStdio as McpServerConfig["stdio"];
+      } else {
+        sanitizedPatch.stdio = { ...sanitizedPatch.stdio, env: filtered };
+      }
+    }
+    if (sanitizedPatch.http?.headers) {
+      const filtered: Record<string, string> = {};
+      for (const [k, v] of Object.entries(sanitizedPatch.http.headers)) {
+        if (v === "***") continue;
+        filtered[k] = v;
+      }
+      if (Object.keys(filtered).length === 0 && Object.keys(sanitizedPatch.http.headers).length > 0) {
+        const { headers: _omit, ...restHttp } = sanitizedPatch.http;
+        sanitizedPatch.http = restHttp as McpServerConfig["http"];
+        if (Object.keys(restHttp).length === 0) delete (sanitizedPatch as Record<string, unknown>).http;
+        else sanitizedPatch.http = restHttp as McpServerConfig["http"];
+      } else {
+        sanitizedPatch.http = { ...sanitizedPatch.http, headers: filtered };
+      }
+    }
+    if (sanitizedPatch.sse?.headers) {
+      const filtered: Record<string, string> = {};
+      for (const [k, v] of Object.entries(sanitizedPatch.sse.headers)) {
+        if (v === "***") continue;
+        filtered[k] = v;
+      }
+      if (Object.keys(filtered).length === 0 && Object.keys(sanitizedPatch.sse.headers).length > 0) {
+        const { headers: _omit, ...restSse } = sanitizedPatch.sse as unknown as Record<string, unknown>;
+        (sanitizedPatch as Record<string, unknown>).sse = Object.keys(restSse).length ? restSse : undefined;
+        if (!Object.keys(restSse).length) delete (sanitizedPatch as Record<string, unknown>).sse;
+      } else if (sanitizedPatch.sse) {
+        sanitizedPatch.sse = { ...sanitizedPatch.sse, headers: filtered };
+      }
+    }
+
     // Merge patch onto existing plain, then hydrate existing secrets so we don't lose them if patch omits env/headers
     const hydrated = await hydrateSecrets(existing, this.store);
     const merged: McpServerConfig = {
       ...hydrated,
-      ...patch,
+      ...sanitizedPatch,
       id, // id immutable
-      // Deep merge stdio/http
-      ...(patch.stdio ? { stdio: { ...hydrated.stdio, ...patch.stdio, env: { ...(hydrated.stdio?.env ?? {}), ...(patch.stdio.env ?? {}) } } } : {}),
-      ...(patch.http ? { http: { ...hydrated.http, ...patch.http, headers: { ...(hydrated.http?.headers ?? {}), ...(patch.http.headers ?? {}) } } } : {}),
+      // Deep merge stdio/http (use sanitized patch)
+      ...(sanitizedPatch.stdio
+        ? {
+            stdio: {
+              ...hydrated.stdio,
+              ...sanitizedPatch.stdio,
+              env: { ...(hydrated.stdio?.env ?? {}), ...(sanitizedPatch.stdio.env ?? {}) },
+            },
+          }
+        : {}),
+      ...(sanitizedPatch.http
+        ? {
+            http: {
+              ...hydrated.http,
+              ...sanitizedPatch.http,
+              headers: { ...(hydrated.http?.headers ?? {}), ...(sanitizedPatch.http.headers ?? {}) },
+            },
+          }
+        : {}),
+      ...(sanitizedPatch.sse
+        ? {
+            sse: {
+              ...(hydrated.sse as unknown as Record<string, unknown>),
+              ...sanitizedPatch.sse,
+              headers: {
+                ...((hydrated.sse?.headers ?? hydrated.http?.headers ?? {}) as Record<string, string>),
+                ...(sanitizedPatch.sse.headers ?? {}),
+              },
+            } as McpServerConfig["sse"],
+          }
+        : {}),
     };
 
     const v = validateMcpServerConfig(merged);

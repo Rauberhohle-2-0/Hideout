@@ -311,6 +311,21 @@
     .mcp-empty { color: var(--muted); font-size: 0.85rem; padding: 14px; border: 1px dashed var(--border); border-radius: 12px; text-align: center; background: color-mix(in srgb, var(--card) 80%, transparent); }
     .mcp-meta { color: var(--muted); font-size: 0.78rem; margin-top: 4px; }
 
+    /* Assistant cards */
+    .assistant-card .provider-url { word-break: break-all; }
+    .assistant-disabled { opacity: 0.7; }
+    .assistant-emoji { font-size: 1.1rem; line-height: 1; }
+    .assistant-instructions { color: var(--text); font-size: 0.82rem; margin-top: 8px; white-space: pre-wrap; word-break: break-word; background: color-mix(in srgb, var(--bg) 80%, transparent); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; max-height: 96px; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; line-clamp: 4; }
+    .assistant-params { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+    .param-chip { font-size: 0.7rem; font-weight: 600; border-radius: 999px; padding: 2px 8px; border: 1px solid var(--border); background: var(--bg); color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .assistant-actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+    .assistant-actions .btn { font-size: 0.78rem; padding: 6px 10px; }
+    .assistant-empty { color: var(--muted); font-size: 0.85rem; padding: 14px; border: 1px dashed var(--border); border-radius: 12px; text-align: center; background: color-mix(in srgb, var(--card) 80%, transparent); }
+    details.assistant-advanced { border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; background: color-mix(in srgb, var(--bg) 60%, transparent); }
+    details.assistant-advanced summary { cursor: pointer; font-size: 0.82rem; font-weight: 600; color: var(--muted); list-style: none; }
+    details.assistant-advanced summary::-webkit-details-marker { display: none; }
+    details.assistant-advanced[open] summary { margin-bottom: 10px; }
+
     /* Dialog / form */
     dialog.mcp-dialog {
       border: 1px solid var(--border);
@@ -386,6 +401,24 @@
         </div>
       </div>
       <div id="mcp-content" class="providers"><!-- mcp cards injected here --></div>
+    </section>
+
+    <section class="assistant-section" aria-labelledby="assistant-title">
+      <div class="section-header">
+        <div>
+          <h2 id="assistant-title" class="section-title">Assistants</h2>
+          <p class="section-subtitle">Custom system prompts &amp; sampling presets</p>
+        </div>
+        <div class="mcp-toolbar">
+          <span id="assistant-last-check" class="last-check"></span>
+          <button id="assistant-refresh-btn" class="btn" type="button">
+            <span id="assistant-refresh-icon" class="spin" style="display: none"></span>
+            Refresh
+          </button>
+          <button id="assistant-add-btn" class="btn btn-primary" type="button">Add Assistant</button>
+        </div>
+      </div>
+      <div id="assistant-content" class="providers"><!-- assistant cards injected here --></div>
     </section>
 
     <footer class="note">
@@ -481,6 +514,115 @@
       <div class="dialog-foot">
         <button type="button" id="mcp-cancel-btn" class="btn">Cancel</button>
         <button type="submit" id="mcp-submit-btn" class="btn btn-primary">Add server</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="assistant-dialog" class="mcp-dialog" aria-labelledby="assistant-dialog-title">
+    <div class="dialog-head">
+      <div>
+        <h2 id="assistant-dialog-title">Add Assistant</h2>
+        <p>Define a custom assistant — system prompt, sampling parameters and optional model adherence.</p>
+      </div>
+      <button id="assistant-dialog-close" class="icon-btn" type="button" aria-label="Close">✕</button>
+    </div>
+    <form id="assistant-form" method="dialog">
+      <div class="dialog-body">
+        <div class="form-grid">
+          <div class="field">
+            <label for="assistant-id">ID *</label>
+            <input id="assistant-id" name="id" required placeholder="coding-helper" pattern="[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}" maxlength="64" />
+            <small>Slug, e.g. coding-helper, research-assistant</small>
+          </div>
+          <div class="field">
+            <label for="assistant-name">Name *</label>
+            <input id="assistant-name" name="name" required placeholder="Code Helper" maxlength="64" />
+          </div>
+          <div class="field">
+            <label for="assistant-emoji">Emoji</label>
+            <input id="assistant-emoji" name="emoji" placeholder="🤖" maxlength="16" />
+            <small>Optional face — e.g. 🧙, 🦊</small>
+          </div>
+          <div class="field">
+            <label for="assistant-enabled">Enabled</label>
+            <select id="assistant-enabled" name="enabled">
+              <option value="true" selected>Yes</option>
+              <option value="false">No</option>
+            </select>
+          </div>
+          <div class="field span-2">
+            <label for="assistant-desc">Description</label>
+            <input id="assistant-desc" name="description" placeholder="Optional description" maxlength="512" />
+          </div>
+          <div class="field span-2">
+            <label for="assistant-instructions">Instructions *</label>
+            <textarea id="assistant-instructions" name="instructions" rows="5" required placeholder="You are a helpful coding assistant..."></textarea>
+            <small>System prompt injected before every conversation</small>
+          </div>
+          <div class="field">
+            <label for="assistant-providerId">Provider ID</label>
+            <input id="assistant-providerId" name="providerId" placeholder="ollama" maxlength="64" />
+            <small>Optional — e.g. ollama</small>
+          </div>
+          <div class="field">
+            <label for="assistant-model">Model</label>
+            <input id="assistant-model" name="model" placeholder="llama3.2" maxlength="256" />
+            <small>Optional model name</small>
+          </div>
+        </div>
+
+        <details class="assistant-advanced">
+          <summary>Advanced parameters ▾</summary>
+          <div class="form-grid">
+            <div class="field">
+              <label for="assistant-temperature">Temperature (0..2)</label>
+              <input id="assistant-temperature" name="temperature" type="number" step="0.1" min="0" max="2" placeholder="0.7" />
+            </div>
+            <div class="field">
+              <label for="assistant-topP">Top P (0..1)</label>
+              <input id="assistant-topP" name="topP" type="number" step="0.05" min="0" max="1" placeholder="0.9" />
+            </div>
+            <div class="field">
+              <label for="assistant-topK">Top K (0..100)</label>
+              <input id="assistant-topK" name="topK" type="number" step="1" min="0" max="100" placeholder="40" />
+            </div>
+            <div class="field">
+              <label for="assistant-minP">Min P (0..1)</label>
+              <input id="assistant-minP" name="minP" type="number" step="0.05" min="0" max="1" placeholder="0.05" />
+            </div>
+            <div class="field">
+              <label for="assistant-frequencyPenalty">Frequency penalty (-2..2)</label>
+              <input id="assistant-frequencyPenalty" name="frequencyPenalty" type="number" step="0.1" min="-2" max="2" placeholder="0" />
+            </div>
+            <div class="field">
+              <label for="assistant-presencePenalty">Presence penalty (-2..2)</label>
+              <input id="assistant-presencePenalty" name="presencePenalty" type="number" step="0.1" min="-2" max="2" placeholder="0" />
+            </div>
+            <div class="field">
+              <label for="assistant-repeatPenalty">Repeat penalty (0..2)</label>
+              <input id="assistant-repeatPenalty" name="repeatPenalty" type="number" step="0.1" min="0" max="2" placeholder="1.1" />
+            </div>
+            <div class="field">
+              <label for="assistant-maxTokens">Max tokens (1..200000)</label>
+              <input id="assistant-maxTokens" name="maxTokens" type="number" step="1" min="1" max="200000" placeholder="2048" />
+            </div>
+            <div class="field">
+              <label for="assistant-seed">Seed</label>
+              <input id="assistant-seed" name="seed" type="number" step="1" min="0" max="2147483647" placeholder="42" />
+            </div>
+            <div class="field span-2">
+              <label for="assistant-stop">Stop sequences</label>
+              <input id="assistant-stop" name="stop" placeholder="comma separated — e.g. &lt;|stop|&gt;, END" />
+              <small>Up to 16 entries, comma-separated</small>
+            </div>
+          </div>
+        </details>
+
+        <div id="assistant-form-error" class="form-error" hidden></div>
+      </div>
+      <div class="dialog-foot">
+        <button type="button" id="assistant-cancel-btn" class="btn">Cancel</button>
+        <button type="submit" id="assistant-submit-btn" class="btn btn-primary">Add assistant</button>
       </div>
     </form>
   </dialog>

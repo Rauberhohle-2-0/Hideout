@@ -19,6 +19,12 @@ export const IPC_CHANNELS = {
   MCP_CONNECT: "mcp:connect",
   MCP_DISCONNECT: "mcp:disconnect",
   MCP_SET_ENABLED: "mcp:set-enabled",
+  ASSISTANT_LIST: "assistant:list",
+  ASSISTANT_GET: "assistant:get",
+  ASSISTANT_ADD: "assistant:add",
+  ASSISTANT_UPDATE: "assistant:update",
+  ASSISTANT_REMOVE: "assistant:remove",
+  ASSISTANT_SET_ENABLED: "assistant:set-enabled",
 } as const;
 
 export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS];
@@ -39,7 +45,15 @@ export interface AiChatIpcRequest {
   temperature?: number;
   maxTokens?: number;
   topP?: number;
+  topK?: number;
+  minP?: number;
+  repeatPenalty?: number;
+  frequencyPenalty?: number;
+  presencePenalty?: number;
+  seed?: number;
   stop?: string[];
+  /** Optional adherence: run this chat as this assistant (system prompt + default params) */
+  assistantId?: string;
 }
 
 export interface AiChatIpcResponse {
@@ -49,6 +63,46 @@ export interface AiChatIpcResponse {
   content: string;
   finishReason: string;
   usage?: { promptTokens?: number; completionTokens?: number; totalTokens?: number };
+}
+
+// Assistant wire types — system prompt + sampling parameters + adherence to model
+export interface AssistantParametersWire {
+  temperature?: number;
+  topP?: number;
+  topK?: number;
+  minP?: number;
+  frequencyPenalty?: number;
+  presencePenalty?: number;
+  repeatPenalty?: number;
+  maxTokens?: number;
+  stop?: string[];
+  seed?: number;
+}
+
+export interface AssistantSafe {
+  id: string;
+  name: string;
+  description?: string;
+  emoji?: string;
+  instructions: string;
+  parameters?: AssistantParametersWire;
+  providerId?: string;
+  model?: string;
+  enabled: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface AssistantAddRequest {
+  id: string;
+  name: string;
+  description?: string;
+  emoji?: string;
+  instructions: string;
+  parameters?: AssistantParametersWire;
+  providerId?: string;
+  model?: string;
+  enabled?: boolean;
 }
 
 // MCP wire types — never include raw secrets (values are "***" if present)
@@ -105,6 +159,13 @@ export interface Api {
   mcpConnect(id: string): Promise<McpServerStatus>;
   mcpDisconnect(id: string): Promise<{ ok: true }>;
   mcpSetEnabled(id: string, enabled: boolean): Promise<McpServerSafe>;
+  // Assistant — system prompt + sampling params + model adherence
+  assistantList(): Promise<AssistantSafe[]>;
+  assistantGet(id: string): Promise<AssistantSafe>;
+  assistantAdd(config: AssistantAddRequest): Promise<AssistantSafe>;
+  assistantUpdate(id: string, patch: Partial<AssistantAddRequest>): Promise<AssistantSafe>;
+  assistantRemove(id: string): Promise<{ ok: true }>;
+  assistantSetEnabled(id: string, enabled: boolean): Promise<AssistantSafe>;
 }
 
 declare global {

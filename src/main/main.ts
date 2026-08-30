@@ -2,7 +2,7 @@ import { app, BrowserWindow, ipcMain } from 'electron'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import fs from 'node:fs'
-import { HELLO_WORLD, IPC_CHANNELS, type AiChatIpcRequest, type McpAddServerRequest } from '../shared/api.ts'
+import { HELLO_WORLD, IPC_CHANNELS, type AiChatIpcRequest, type McpAddServerRequest, type AssistantAddRequest } from '../shared/api.ts'
 import { getServerUrl, startHonoServer, stopHonoServer } from '../server/index.ts'
 import { Logger } from '../logger.ts'
 import { getDefaultRegistry } from '../ai/index.ts'
@@ -12,6 +12,8 @@ import { getDefaultMcpRegistry, setMcpStoreDir } from '../mcp/registry.ts'
 import { getDefaultMcpManager } from '../mcp/manager.ts'
 import { McpError } from '../mcp/errors.ts'
 import { EXA_MCP_PRESET } from '../mcp/types.ts'
+import { getDefaultAssistantRegistry, setAssistantStoreDir } from '../assistants/registry.ts'
+import { AssistantError } from '../assistants/errors.ts'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -222,18 +224,83 @@ function registerIpc(): void {
     if (r.maxTokens !== undefined && (typeof r.maxTokens !== 'number' || r.maxTokens <= 0 || r.maxTokens > 200_000)) {
       throw new Error('maxTokens invalid')
     }
+    if (r.topP !== undefined && (typeof r.topP !== 'number' || r.topP < 0 || r.topP > 1)) throw new Error('topP must be 0..1')
+    if (r.topK !== undefined && (typeof r.topK !== 'number' || !Number.isInteger(r.topK) || r.topK < 0 || r.topK > 100)) throw new Error('topK must be integer 0..100')
+    if (r.minP !== undefined && (typeof r.minP !== 'number' || r.minP < 0 || r.minP > 1)) throw new Error('minP must be 0..1')
+    if (r.repeatPenalty !== undefined && (typeof r.repeatPenalty !== 'number' || r.repeatPenalty < 0 || r.repeatPenalty > 2)) throw new Error('repeatPenalty must be 0..2')
+    if (r.frequencyPenalty !== undefined && (typeof r.frequencyPenalty !== 'number' || r.frequencyPenalty < -2 || r.frequencyPenalty > 2)) throw new Error('frequencyPenalty must be -2..2')
+    if (r.presencePenalty !== undefined && (typeof r.presencePenalty !== 'number' || r.presencePenalty < -2 || r.presencePenalty > 2)) throw new Error('presencePenalty must be -2..2')
+    if (r.seed !== undefined && (typeof r.seed !== 'number' || !Number.isInteger(r.seed))) throw new Error('seed must be integer')
+    if (r.stop !== undefined && (!Array.isArray(r.stop) || !(r.stop as unknown[]).every((s) => typeof s === 'string'))) throw new Error('stop must be string[]')
+    if (r.assistantId !== undefined && typeof r.assistantId !== 'string') throw new Error('assistantId must be string')
 
     const registry = getDefaultRegistry()
     const provider = registry.get(providerId)
     if (!provider) throw new Error(`Provider not found: ${providerId}`)
 
+    // Resolve assistant adherence: inject system prompt + merge sampling params
+    let messages: typeof r.messages = r.messages
+    let model: string | undefined = r.model
+    let temperature: number | undefined = r.temperature
+    let maxTokens: number | undefined = r.maxTokens
+    let topP: number | undefined = r.topP
+    let topK: number | undefined = r.topK
+    let minP: number | undefined = r.minP
+    let repeatPenalty: number | undefined = r.repeatPenalty
+    let frequencyPenalty: number | undefined = r.frequencyPenalty
+    let presencePenalty: number | undefined = r.presencePenalty
+    let seed: number | undefined = r.seed
+    let stop: string[] | undefined = r.stop
+
+    if (r.assistantId) {
+      const aReg = getDefaultAssistantRegistry()
+      const assistant = aReg.get(r.assistantId)
+      if (!assistant) throw new Error(`Assistant not found: ${r.assistantId}`)
+      if (assistant.enabled === false) throw new Error(`Assistant disabled: ${r.assistantId}`)
+      const p = assistant.parameters ?? {}
+      // request overrides assistant
+      model = model ?? assistant.model
+      temperature = temperature ?? p.temperature
+      maxTokens = maxTokens ?? p.maxTokens
+      topP = topP ?? p.topP
+      topK = topK ?? p.topK
+      minP = minP ?? p.minP
+      repeatPenalty = repeatPenalty ?? p.repeatPenalty
+      frequencyPenalty = frequencyPenalty ?? p.frequencyPenalty
+      presencePenalty = presencePenalty ?? p.presencePenalty
+      seed = seed ?? p.seed
+      stop = stop ?? p.stop
+
+      // Inject instructions as system message
+      if (assistant.instructions) {
+        const hasSystem = messages.length > 0 && messages[0]!.role === 'system'
+        if (!hasSystem) {
+          messages = [{ role: 'system', content: assistant.instructions }, ...messages]
+        } else {
+          const existing = messages[0]!
+          const merged = `${assistant.instructions}\n\n${existing.content}`
+          messages = [{ role: 'system', content: merged }, ...messages.slice(1)]
+        }
+      }
+      // If assistant is adhered to a specific provider, warn if mismatched (allow but log)
+      if (assistant.providerId && assistant.providerId !== providerId) {
+        logger.info(`Assistant ${assistant.id} adhered to ${assistant.providerId} but chat uses ${providerId} — allowing`)
+      }
+    }
+
     try {
-      return await provider.chat(r.messages as never, {
-        model: r.model,
-        temperature: r.temperature,
-        maxTokens: r.maxTokens,
-        topP: r.topP,
-        stop: r.stop,
+      return await provider.chat(messages as never, {
+        model,
+        temperature,
+        maxTokens,
+        topP,
+        topK,
+        minP,
+        repeatPenalty,
+        frequencyPenalty,
+        presencePenalty,
+        seed,
+        stop,
         timeoutMs: 120_000,
       })
     } catch (err) {
@@ -326,6 +393,64 @@ function registerIpc(): void {
       throw err
     }
   })
+
+  // ---- Assistant IPC — system prompt + sampling params + model adherence ----
+  ipcMain.handle(IPC_CHANNELS.ASSISTANT_LIST, async () => {
+    return getDefaultAssistantRegistry().list()
+  })
+
+  ipcMain.handle(IPC_CHANNELS.ASSISTANT_GET, async (_evt, id: unknown) => {
+    const sid = assertString(id, 'id')
+    const a = getDefaultAssistantRegistry().get(sid)
+    if (!a) throw new Error(`Assistant not found: ${sid}`)
+    return a
+  })
+
+  ipcMain.handle(IPC_CHANNELS.ASSISTANT_ADD, async (_evt, cfg: unknown) => {
+    const c = cfg as AssistantAddRequest
+    if (!c || typeof c.id !== 'string' || typeof c.name !== 'string' || typeof c.instructions !== 'string') {
+      throw new Error('Invalid assistant config: id, name, instructions required')
+    }
+    try {
+      return await getDefaultAssistantRegistry().add(c as never)
+    } catch (err) {
+      if (err instanceof AssistantError) throw new Error(`${err.code}: ${err.message}`)
+      throw err
+    }
+  })
+
+  ipcMain.handle(IPC_CHANNELS.ASSISTANT_UPDATE, async (_evt, id: unknown, patch: unknown) => {
+    const sid = assertString(id, 'id')
+    if (!patch || typeof patch !== 'object') throw new Error('Invalid patch')
+    try {
+      return await getDefaultAssistantRegistry().update(sid, patch as never)
+    } catch (err) {
+      if (err instanceof AssistantError) throw new Error(`${err.code}: ${err.message}`)
+      throw err
+    }
+  })
+
+  ipcMain.handle(IPC_CHANNELS.ASSISTANT_REMOVE, async (_evt, id: unknown) => {
+    const sid = assertString(id, 'id')
+    try {
+      await getDefaultAssistantRegistry().remove(sid)
+      return { ok: true as const }
+    } catch (err) {
+      if (err instanceof AssistantError) throw new Error(`${err.code}: ${err.message}`)
+      throw err
+    }
+  })
+
+  ipcMain.handle(IPC_CHANNELS.ASSISTANT_SET_ENABLED, async (_evt, id: unknown, enabled: unknown) => {
+    const sid = assertString(id, 'id')
+    if (typeof enabled !== 'boolean') throw new Error('enabled must be boolean')
+    try {
+      return await getDefaultAssistantRegistry().setEnabled(sid, enabled)
+    } catch (err) {
+      if (err instanceof AssistantError) throw new Error(`${err.code}: ${err.message}`)
+      throw err
+    }
+  })
 }
 
 function initSecureStore(): void {
@@ -335,6 +460,7 @@ function initSecureStore(): void {
     const userData = app.getPath('userData')
     setStoreDir(userData)
     setMcpStoreDir(userData)
+    setAssistantStoreDir(userData)
     logger.info(`Secure store dir: ${userData}`)
     // Hydrate secrets (non-blocking, but log failures)
     void getDefaultRegistry()

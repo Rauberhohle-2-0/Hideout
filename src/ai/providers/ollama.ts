@@ -231,6 +231,12 @@ export class OllamaProvider extends BaseProvider {
     const ollamaOptions: Record<string, unknown> = {};
     if (options?.temperature !== undefined) ollamaOptions.temperature = options.temperature;
     if (options?.topP !== undefined) ollamaOptions.top_p = options.topP;
+    if (options?.topK !== undefined) ollamaOptions.top_k = options.topK;
+    if (options?.minP !== undefined) ollamaOptions.min_p = options.minP;
+    if (options?.repeatPenalty !== undefined) ollamaOptions.repeat_penalty = options.repeatPenalty;
+    if (options?.frequencyPenalty !== undefined) ollamaOptions.frequency_penalty = options.frequencyPenalty;
+    if (options?.presencePenalty !== undefined) ollamaOptions.presence_penalty = options.presencePenalty;
+    if (options?.seed !== undefined) ollamaOptions.seed = options.seed;
     if (options?.stop?.length) ollamaOptions.stop = options.stop;
     if (options?.maxTokens !== undefined) ollamaOptions.num_predict = options.maxTokens;
     if (Object.keys(ollamaOptions).length) body.options = ollamaOptions;
@@ -276,6 +282,12 @@ export class OllamaProvider extends BaseProvider {
     const ollamaOptions: Record<string, unknown> = {};
     if (options?.temperature !== undefined) ollamaOptions.temperature = options.temperature;
     if (options?.topP !== undefined) ollamaOptions.top_p = options.topP;
+    if (options?.topK !== undefined) ollamaOptions.top_k = options.topK;
+    if (options?.minP !== undefined) ollamaOptions.min_p = options.minP;
+    if (options?.repeatPenalty !== undefined) ollamaOptions.repeat_penalty = options.repeatPenalty;
+    if (options?.frequencyPenalty !== undefined) ollamaOptions.frequency_penalty = options.frequencyPenalty;
+    if (options?.presencePenalty !== undefined) ollamaOptions.presence_penalty = options.presencePenalty;
+    if (options?.seed !== undefined) ollamaOptions.seed = options.seed;
     if (options?.stop?.length) ollamaOptions.stop = options.stop;
     if (options?.maxTokens !== undefined) ollamaOptions.num_predict = options.maxTokens;
     if (Object.keys(ollamaOptions).length) body.options = ollamaOptions;

@@ -23,6 +23,12 @@ export interface AiChatOptions {
   temperature?: number;
   maxTokens?: number;
   topP?: number;
+  topK?: number;
+  minP?: number;
+  repeatPenalty?: number;
+  frequencyPenalty?: number;
+  presencePenalty?: number;
+  seed?: number;
   stop?: string[];
   /** Request timeout in ms */
   timeoutMs?: number;

@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { getDefaultRegistry } from "../ai/index.ts";
 import { AiError } from "../ai/errors.ts";
 import { Logger } from "../logger.ts";
+import { getDefaultAssistantRegistry } from "../assistants/registry.ts";
 
 const logger = new Logger({ prefix: "ai-routes" });
 
@@ -40,7 +41,24 @@ function getRegistry() {
   return getDefaultRegistry();
 }
 
-function validateChatBody(body: unknown): { providerId: string; messages: unknown; model?: string; temperature?: number; maxTokens?: number; topP?: number; stop?: string[] } | { error: string } {
+type ValidChatBody = {
+  providerId: string;
+  messages: unknown[];
+  model?: string;
+  temperature?: number;
+  maxTokens?: number;
+  topP?: number;
+  topK?: number;
+  minP?: number;
+  repeatPenalty?: number;
+  frequencyPenalty?: number;
+  presencePenalty?: number;
+  seed?: number;
+  stop?: string[];
+  assistantId?: string;
+};
+
+function validateChatBody(body: unknown): ValidChatBody | { error: string } {
   if (!body || typeof body !== "object" || Array.isArray(body)) return { error: "Invalid JSON body" };
   const b = body as Record<string, unknown>;
   if (typeof b.providerId !== "string" || !b.providerId) return { error: "providerId is required" };
@@ -63,10 +81,105 @@ function validateChatBody(body: unknown): { providerId: string; messages: unknow
     return { error: "maxTokens must be a positive number" };
   }
   if (b.topP !== undefined && (typeof b.topP !== "number" || b.topP < 0 || b.topP > 1)) return { error: "topP must be 0..1" };
+  if (b.topK !== undefined && (typeof b.topK !== "number" || !Number.isInteger(b.topK as number) || (b.topK as number) < 0 || (b.topK as number) > 100)) return { error: "topK must be integer 0..100" };
+  if (b.minP !== undefined && (typeof b.minP !== "number" || b.minP < 0 || b.minP > 1)) return { error: "minP must be 0..1" };
+  if (b.repeatPenalty !== undefined && (typeof b.repeatPenalty !== "number" || b.repeatPenalty < 0 || b.repeatPenalty > 2)) return { error: "repeatPenalty must be 0..2" };
+  if (b.frequencyPenalty !== undefined && (typeof b.frequencyPenalty !== "number" || b.frequencyPenalty < -2 || b.frequencyPenalty > 2)) return { error: "frequencyPenalty must be -2..2" };
+  if (b.presencePenalty !== undefined && (typeof b.presencePenalty !== "number" || b.presencePenalty < -2 || b.presencePenalty > 2)) return { error: "presencePenalty must be -2..2" };
+  if (b.seed !== undefined && (typeof b.seed !== "number" || !Number.isInteger(b.seed as number))) return { error: "seed must be integer" };
   if (b.stop !== undefined && (!Array.isArray(b.stop) || !(b.stop as unknown[]).every((s) => typeof s === "string"))) {
     return { error: "stop must be string[]" };
   }
+  if (b.assistantId !== undefined && typeof b.assistantId !== "string") return { error: "assistantId must be string" };
+  if (typeof b.assistantId === "string" && b.assistantId.length > 64) return { error: "assistantId too long" };
   return b as never;
+}
+
+function resolveAssistantChatContext(
+  parsed: ValidChatBody,
+): { messages: unknown[]; model?: string; temperature?: number; maxTokens?: number; topP?: number; topK?: number; minP?: number; repeatPenalty?: number; frequencyPenalty?: number; presencePenalty?: number; seed?: number; stop?: string[] } {
+  if (!("assistantId" in parsed) || !parsed.assistantId) {
+    return {
+      messages: parsed.messages as never,
+      ...(parsed.model !== undefined ? { model: parsed.model } : {}),
+      ...(parsed.temperature !== undefined ? { temperature: parsed.temperature } : {}),
+      ...(parsed.maxTokens !== undefined ? { maxTokens: parsed.maxTokens } : {}),
+      ...(parsed.topP !== undefined ? { topP: parsed.topP } : {}),
+      ...(parsed.topK !== undefined ? { topK: parsed.topK } : {}),
+      ...(parsed.minP !== undefined ? { minP: parsed.minP } : {}),
+      ...(parsed.repeatPenalty !== undefined ? { repeatPenalty: parsed.repeatPenalty } : {}),
+      ...(parsed.frequencyPenalty !== undefined ? { frequencyPenalty: parsed.frequencyPenalty } : {}),
+      ...(parsed.presencePenalty !== undefined ? { presencePenalty: parsed.presencePenalty } : {}),
+      ...(parsed.seed !== undefined ? { seed: parsed.seed } : {}),
+      ...(parsed.stop !== undefined ? { stop: parsed.stop } : {}),
+    };
+  }
+  const reg = getDefaultAssistantRegistry();
+  const assistant = reg.get(parsed.assistantId!);
+  if (!assistant || assistant.enabled === false) {
+    // If assistant not found/disabled, return parsed as-is; route handler will return 404 before calling this for strict cases
+    // For leniency, just return without injection
+    return {
+      messages: parsed.messages as never,
+      ...(parsed.model !== undefined ? { model: parsed.model } : {}),
+      ...(parsed.temperature !== undefined ? { temperature: parsed.temperature } : {}),
+      ...(parsed.maxTokens !== undefined ? { maxTokens: parsed.maxTokens } : {}),
+      ...(parsed.topP !== undefined ? { topP: parsed.topP } : {}),
+      ...(parsed.topK !== undefined ? { topK: parsed.topK } : {}),
+      ...(parsed.minP !== undefined ? { minP: parsed.minP } : {}),
+      ...(parsed.repeatPenalty !== undefined ? { repeatPenalty: parsed.repeatPenalty } : {}),
+      ...(parsed.frequencyPenalty !== undefined ? { frequencyPenalty: parsed.frequencyPenalty } : {}),
+      ...(parsed.presencePenalty !== undefined ? { presencePenalty: parsed.presencePenalty } : {}),
+      ...(parsed.seed !== undefined ? { seed: parsed.seed } : {}),
+      ...(parsed.stop !== undefined ? { stop: parsed.stop } : {}),
+    };
+  }
+
+  // Merge parameters: assistant defaults overridden by request
+  const p = assistant.parameters ?? {};
+  const merged = {
+    temperature: parsed.temperature ?? p.temperature,
+    maxTokens: parsed.maxTokens ?? p.maxTokens,
+    topP: parsed.topP ?? p.topP,
+    topK: parsed.topK ?? p.topK,
+    minP: parsed.minP ?? p.minP,
+    repeatPenalty: parsed.repeatPenalty ?? p.repeatPenalty,
+    frequencyPenalty: parsed.frequencyPenalty ?? p.frequencyPenalty,
+    presencePenalty: parsed.presencePenalty ?? p.presencePenalty,
+    seed: parsed.seed ?? p.seed,
+    stop: parsed.stop ?? p.stop,
+    model: parsed.model ?? assistant.model,
+  };
+
+  // Inject system prompt if assistant has instructions and messages don't already start with system
+  let messages: unknown[] = parsed.messages as unknown[];
+  const hasSystem = messages.length > 0 && (messages[0] as { role?: string })?.role === "system";
+  if (assistant.instructions) {
+    if (!hasSystem) {
+      messages = [{ role: "system", content: assistant.instructions }, ...messages];
+    } else {
+      // Prepend assistant instructions before existing system content (assistant is primary system)
+      // Keep existing system as second message or merge
+      const existing = messages[0] as { role: string; content: string };
+      const mergedSystem = `${assistant.instructions}\n\n${existing.content}`;
+      messages = [{ role: "system", content: mergedSystem }, ...messages.slice(1)];
+    }
+  }
+
+  return {
+    messages: messages as never,
+    ...(merged.model !== undefined ? { model: merged.model } : {}),
+    ...(merged.temperature !== undefined ? { temperature: merged.temperature } : {}),
+    ...(merged.maxTokens !== undefined ? { maxTokens: merged.maxTokens } : {}),
+    ...(merged.topP !== undefined ? { topP: merged.topP } : {}),
+    ...(merged.topK !== undefined ? { topK: merged.topK } : {}),
+    ...(merged.minP !== undefined ? { minP: merged.minP } : {}),
+    ...(merged.repeatPenalty !== undefined ? { repeatPenalty: merged.repeatPenalty } : {}),
+    ...(merged.frequencyPenalty !== undefined ? { frequencyPenalty: merged.frequencyPenalty } : {}),
+    ...(merged.presencePenalty !== undefined ? { presencePenalty: merged.presencePenalty } : {}),
+    ...(merged.seed !== undefined ? { seed: merged.seed } : {}),
+    ...(merged.stop !== undefined ? { stop: merged.stop } : {}),
+  };
 }
 
 // GET /api/ai/providers
@@ -111,7 +224,7 @@ aiRoutes.get("/providers/:id/models", async (c) => {
   }
 });
 
-// POST /api/ai/chat  { providerId, messages, model?, temperature?, maxTokens?, topP?, stop? }
+// POST /api/ai/chat  { providerId, messages, model?, temperature?, maxTokens?, topP?, topK?, minP?, repeatPenalty?, frequencyPenalty?, presencePenalty?, seed?, stop?, assistantId? }
 aiRoutes.post("/chat", async (c) => {
   // rate limit
   const rl = rateLimit(c as never, async () => {});
@@ -126,18 +239,38 @@ aiRoutes.post("/chat", async (c) => {
   const parsed = validateChatBody(body);
   if ("error" in parsed) return c.json({ error: parsed.error }, 400);
 
-  const { providerId, messages, model, temperature, maxTokens, topP, stop } = parsed;
+  // If assistantId provided, validate existence and adherence before proceeding
+  if (parsed.assistantId) {
+    const aReg = getDefaultAssistantRegistry();
+    const a = aReg.get(parsed.assistantId);
+    if (!a) return c.json({ error: `Assistant not found: ${parsed.assistantId}` }, 404);
+    if (a.enabled === false) return c.json({ error: `Assistant disabled: ${parsed.assistantId}` }, 400);
+    // Optional: if assistant is adhered to a specific provider, enforce or warn
+    if (a.providerId && a.providerId !== parsed.providerId) {
+      // Allow cross-provider use but log; adherence is default, not strict
+      logger.info(`Assistant ${a.id} adhered to ${a.providerId} but chat uses ${parsed.providerId} — allowing`);
+    }
+  }
+
+  const ctx = resolveAssistantChatContext(parsed);
+  const { providerId } = parsed;
   const registry = getRegistry();
   const provider = registry.get(providerId);
   if (!provider) return c.json({ error: `Provider not found: ${providerId}` }, 404);
 
   try {
-    const res = await provider.chat(messages as never, {
-      model,
-      temperature,
-      maxTokens,
-      topP,
-      stop,
+    const res = await provider.chat(ctx.messages as never, {
+      model: ctx.model,
+      temperature: ctx.temperature,
+      maxTokens: ctx.maxTokens,
+      topP: ctx.topP,
+      topK: ctx.topK,
+      minP: ctx.minP,
+      repeatPenalty: ctx.repeatPenalty,
+      frequencyPenalty: ctx.frequencyPenalty,
+      presencePenalty: ctx.presencePenalty,
+      seed: ctx.seed,
+      stop: ctx.stop,
       timeoutMs: 120_000,
     });
     return c.json(res);
@@ -176,7 +309,15 @@ aiRoutes.post("/chat/stream", async (c) => {
   const parsed = validateChatBody(body);
   if ("error" in parsed) return c.json({ error: parsed.error }, 400);
 
-  const { providerId, messages, model, temperature, maxTokens, topP, stop } = parsed;
+  if (parsed.assistantId) {
+    const aReg = getDefaultAssistantRegistry();
+    const a = aReg.get(parsed.assistantId);
+    if (!a) return c.json({ error: `Assistant not found: ${parsed.assistantId}` }, 404);
+    if (a.enabled === false) return c.json({ error: `Assistant disabled: ${parsed.assistantId}` }, 400);
+  }
+
+  const ctx = resolveAssistantChatContext(parsed);
+  const { providerId } = parsed;
   const registry = getRegistry();
   const provider = registry.get(providerId);
   if (!provider) return c.json({ error: `Provider not found: ${providerId}` }, 404);
@@ -189,12 +330,18 @@ aiRoutes.post("/chat/stream", async (c) => {
         controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
       };
       try {
-        for await (const chunk of provider.chatStream(messages as never, {
-          model,
-          temperature,
-          maxTokens,
-          topP,
-          stop,
+        for await (const chunk of provider.chatStream(ctx.messages as never, {
+          model: ctx.model,
+          temperature: ctx.temperature,
+          maxTokens: ctx.maxTokens,
+          topP: ctx.topP,
+          topK: ctx.topK,
+          minP: ctx.minP,
+          repeatPenalty: ctx.repeatPenalty,
+          frequencyPenalty: ctx.frequencyPenalty,
+          presencePenalty: ctx.presencePenalty,
+          seed: ctx.seed,
+          stop: ctx.stop,
           timeoutMs: 120_000,
         })) {
           send(chunk.done ? "done" : "delta", chunk);

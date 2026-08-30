@@ -31,19 +31,24 @@ export function splitSecrets(config: McpServerConfig): {
 
   if (plain.transport === "stdio" && plain.stdio?.env) {
     for (const [k, v] of Object.entries(config.stdio?.env ?? {})) {
-      if (isSensitiveEnvKey(k) && typeof v === "string" && v.length > 0) {
+      if (isSensitiveEnvKey(k) && typeof v === "string" && v.length > 0 && v !== "***") {
         secrets[envStoreKey(config.id, k)] = v;
         // Keep placeholder in plain so UI knows a secret exists, but redacted
         if (plain.stdio?.env) plain.stdio.env[k] = "***";
+      } else if (v === "***" && plain.stdio?.env) {
+        // Preserve existing placeholder without overwriting stored secret
+        plain.stdio.env[k] = "***";
       }
     }
   }
 
   if ((plain.transport === "http" || plain.transport === "sse") && plain.http?.headers) {
     for (const [k, v] of Object.entries(config.http?.headers ?? {})) {
-      if (isSensitiveHeaderKey(k) && typeof v === "string" && v.length > 0) {
+      if (isSensitiveHeaderKey(k) && typeof v === "string" && v.length > 0 && v !== "***") {
         secrets[headerStoreKey(config.id, k)] = v;
         if (plain.http?.headers) plain.http.headers[k] = "***";
+      } else if (v === "***" && plain.http?.headers) {
+        plain.http.headers[k] = "***";
       }
       // non-sensitive headers stay in plain (not encrypted) — they are not secrets
     }
@@ -51,9 +56,11 @@ export function splitSecrets(config: McpServerConfig): {
   // Also handle sse alias
   if (config.sse?.headers) {
     for (const [k, v] of Object.entries(config.sse.headers ?? {})) {
-      if (isSensitiveHeaderKey(k) && typeof v === "string" && v.length > 0) {
+      if (isSensitiveHeaderKey(k) && typeof v === "string" && v.length > 0 && v !== "***") {
         secrets[headerStoreKey(config.id, k)] = v as string;
         if (plain.sse?.headers) plain.sse.headers[k] = "***";
+      } else if (v === "***" && plain.sse?.headers) {
+        plain.sse.headers[k] = "***";
       }
     }
   }

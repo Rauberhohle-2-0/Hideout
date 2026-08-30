@@ -19,6 +19,12 @@ const IPC_CHANNELS = {
   MCP_CONNECT: "mcp:connect",
   MCP_DISCONNECT: "mcp:disconnect",
   MCP_SET_ENABLED: "mcp:set-enabled",
+  ASSISTANT_LIST: "assistant:list",
+  ASSISTANT_GET: "assistant:get",
+  ASSISTANT_ADD: "assistant:add",
+  ASSISTANT_UPDATE: "assistant:update",
+  ASSISTANT_REMOVE: "assistant:remove",
+  ASSISTANT_SET_ENABLED: "assistant:set-enabled",
 } as const;
 
 // Minimal, validated IPC API - Renderer = untrusted
@@ -125,6 +131,42 @@ const api: Api = {
     const res = await ipcRenderer.invoke(IPC_CHANNELS.MCP_SET_ENABLED, id, enabled);
     if (!res || typeof (res as { id: unknown }).id !== "string") throw new Error("Invalid response");
     return res as Awaited<ReturnType<Api["mcpSetEnabled"]>>;
+  },
+  assistantList: async () => {
+    const res = await ipcRenderer.invoke(IPC_CHANNELS.ASSISTANT_LIST);
+    if (!Array.isArray(res)) throw new Error("Invalid response");
+    return res as Awaited<ReturnType<Api["assistantList"]>>;
+  },
+  assistantGet: async (id: string) => {
+    assertString(id, "id");
+    const res = await ipcRenderer.invoke(IPC_CHANNELS.ASSISTANT_GET, id);
+    if (!res || typeof (res as { id: unknown }).id !== "string") throw new Error("Invalid response");
+    return res as Awaited<ReturnType<Api["assistantGet"]>>;
+  },
+  assistantAdd: async (config) => {
+    if (!config || typeof config.id !== "string" || typeof config.name !== "string" || typeof config.instructions !== "string") throw new Error("Invalid request");
+    const res = await ipcRenderer.invoke(IPC_CHANNELS.ASSISTANT_ADD, config);
+    if (!res || typeof (res as { id: unknown }).id !== "string") throw new Error("Invalid response");
+    return res as Awaited<ReturnType<Api["assistantAdd"]>>;
+  },
+  assistantUpdate: async (id: string, patch) => {
+    assertString(id, "id");
+    const res = await ipcRenderer.invoke(IPC_CHANNELS.ASSISTANT_UPDATE, id, patch);
+    if (!res || typeof (res as { id: unknown }).id !== "string") throw new Error("Invalid response");
+    return res as Awaited<ReturnType<Api["assistantUpdate"]>>;
+  },
+  assistantRemove: async (id: string) => {
+    assertString(id, "id");
+    const res = await ipcRenderer.invoke(IPC_CHANNELS.ASSISTANT_REMOVE, id);
+    if (!res || typeof (res as { ok: unknown }).ok !== "boolean") throw new Error("Invalid response");
+    return res as Awaited<ReturnType<Api["assistantRemove"]>>;
+  },
+  assistantSetEnabled: async (id: string, enabled: boolean) => {
+    assertString(id, "id");
+    if (typeof enabled !== "boolean") throw new Error("Invalid enabled");
+    const res = await ipcRenderer.invoke(IPC_CHANNELS.ASSISTANT_SET_ENABLED, id, enabled);
+    if (!res || typeof (res as { id: unknown }).id !== "string") throw new Error("Invalid response");
+    return res as Awaited<ReturnType<Api["assistantSetEnabled"]>>;
   },
 };
 
