@@ -37,8 +37,9 @@ function validateKey(key: string): void {
 
 function getStoreDir(): string {
   // shared/paths.ts is the single source of truth for store locations: it
-  // keeps the Electron userData path (so existing installs keep their data
-  // after the Vantail migration) and handles the HIDEOUT_*_STORE_DIR overrides.
+  // keeps the platform data directory the earlier desktop build used (so an
+  // existing install keeps its data after the Vantail migration) and handles
+  // the HIDEOUT_*_STORE_DIR overrides.
   return getSecureStoreDir();
 }
 

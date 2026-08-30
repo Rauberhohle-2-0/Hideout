@@ -1,13 +1,13 @@
 /**
- * Cross-platform store paths — mirrors Electron's app.getPath("userData").
- *
- * Electron's userData (when available) is the source of truth:
+ * Cross-platform store paths — the `userData` directory of the earlier desktop
+ * build (Electron's app.getPath("userData")), kept so an existing installation
+ * keeps its servers and assistants across the Vantail migration:
  *   macOS:   ~/Library/Application Support/<AppName>
  *   Windows: %APPDATA%/<AppName>  (e.g. C:\Users\<user>\AppData\Roaming\Hideout)
  *   Linux:   $XDG_CONFIG_HOME/<AppName> or ~/.config/<AppName>
- *
- * For non-Electron contexts (tests, standalone Hono server, Bun) we replicate
- * that logic here so files land in the OS-expected location even without Electron.
+ * Those OS-expected locations are reproduced here for every context that runs
+ * now — the sidecar, tests, and standalone Bun runs — rather than depending on
+ * a desktop framework to provide them.
  *
  * Env overrides (highest priority) are preserved for portability / tests:
  *   HIDEOUT_ASSISTANT_STORE_DIR, HIDEOUT_MCP_STORE_DIR, HIDEOUT_SECURE_STORE_DIR

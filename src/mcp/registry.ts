@@ -5,7 +5,7 @@
  * Secrets: stored separately in SecureStore (OS keychain when available)
  *   — never in the JSON file (values appear as "***").
  *
- * Platform store dirs (mirrors Electron app.getPath("userData")):
+ * Platform store dirs (resolved via shared/paths.ts):
  *   macOS:   ~/Library/Application Support/Hideout/mcp-servers.json
  *   Windows: %APPDATA%/Hideout/mcp-servers.json
  *   Linux:   $XDG_CONFIG_HOME/hideout/mcp-servers.json or ~/.config/hideout/mcp-servers.json

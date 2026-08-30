@@ -5,7 +5,7 @@
  *   ${storeDir}/assistants/${id}.json  (0o600, dirs 0o700)
  * Example: "gary" -> .../assistants/gary.json
  *
- * Platform store dirs (mirrors Electron app.getPath("userData")):
+ * Platform store dirs (resolved via shared/paths.ts):
  *   macOS:   ~/Library/Application Support/Hideout/assistants/<id>.json
  *   Windows: %APPDATA%/Hideout/assistants/<id>.json  (e.g. C:\Users\<user>\AppData\Roaming\Hideout)
  *   Linux:   $XDG_CONFIG_HOME/hideout/assistants/<id>.json or ~/.config/hideout/assistants/<id>.json

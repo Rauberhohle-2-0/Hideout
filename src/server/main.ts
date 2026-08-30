@@ -16,8 +16,8 @@
  *   stdout: HIDEOUT_READY {"port":54321}
  *
  * Where data is written is deliberately *not* part of that contract. It comes
- * from shared/paths.ts, which keeps the location Electron's `userData` used and
- * migrates the older `~/.hideout`. Passing Vantail's own `appDataDir` here
+ * from shared/paths.ts, which keeps the location the earlier desktop build used
+ * and migrates the older `~/.hideout`. Passing Vantail's own `appDataDir` here
  * would be a different directory (named after `app.identifier`) and would
  * strand every existing install's servers, assistants and credentials.
  *
@@ -72,7 +72,8 @@ async function main(): Promise<void> {
   await installUserPath();
 
   // No setStoreDir here: the registries resolve their own location through
-  // shared/paths.ts, which is where the Electron build already put things.
+  // shared/paths.ts, which is where the earlier desktop build already put
+  // things.
   logger.info(`Data dir: ${getSecureStoreDir()}`);
 
   try {

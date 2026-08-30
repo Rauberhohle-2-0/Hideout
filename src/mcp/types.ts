@@ -3,8 +3,9 @@
  *
  * SECURITY:
  * - Secrets (env values that look like API keys, header values) are NEVER stored
- *   in plain JSON. They are written to SecureStore (OS keychain via safeStorage)
- *   under keys `mcp:${serverId}:env:${VAR}` / `mcp:${serverId}:header:${NAME}`.
+ *   in plain JSON. They are written to SecureStore — AES-256-GCM at rest, keyed
+ *   by the master key held in the OS keychain — under keys
+ *   `mcp:${serverId}:env:${VAR}` / `mcp:${serverId}:header:${NAME}`.
  * - Safe configs returned to renderer / API omit secrets (values replaced with "***"
  *   or omitted). Logs redact via logger's SENSITIVE_KEY_PATTERN.
  * - All IDs validated against KEY_RE to prevent path traversal.

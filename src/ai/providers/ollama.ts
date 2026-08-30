@@ -174,26 +174,25 @@ export class OllamaProvider extends BaseProvider {
   async healthCheck(signal?: AbortSignal): Promise<AiHealthStatus> {
     const start = Date.now();
     try {
-      // Ollama has no dedicated health endpoint; GET / is 200 or GET /api/tags
-      const data = await this.fetchJson<{ version?: string } | OllamaTagsResponse>("/api/tags", {
-        method: "GET",
-        signal,
-        timeoutMs: 5000,
-      });
-      const latencyMs = Date.now() - start;
-      // Try version endpoint as well, but don't fail health if it 404s
+      // /api/version answers in one round trip.
       let version: string | undefined;
       try {
         const v = await this.fetchJson<{ version: string }>("/api/version", {
           method: "GET",
           signal,
-          timeoutMs: 3000,
+          timeoutMs: 5000,
         });
-        version = (v as { version: string }).version;
+        version = v.version;
       } catch {
-        // ignore
-        version = (data as { version?: string }).version;
+        // Older Ollama without /api/version: probe /api/tags for the version it carries.
+        const tags = await this.fetchJson<{ version?: string }>("/api/tags", {
+          method: "GET",
+          signal,
+          timeoutMs: 5000,
+        });
+        version = tags.version;
       }
+      const latencyMs = Date.now() - start;
       logger.info(`Ollama health ok latency=${latencyMs}ms`);
       return { ok: true, latencyMs, version };
     } catch (err) {

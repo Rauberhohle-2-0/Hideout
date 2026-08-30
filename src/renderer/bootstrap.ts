@@ -80,9 +80,9 @@ export async function startSidecar(): Promise<SidecarConnection> {
   const masterKey = await loadOrCreateMasterKey();
 
   // The data directory is deliberately not passed: the sidecar resolves it via
-  // shared/paths.ts, which keeps the location the Electron build used. Handing
-  // it Vantail's `appDataDir` — named after `app.identifier` — would point a
-  // migrated install at an empty directory.
+  // shared/paths.ts, which keeps the location the earlier desktop build used.
+  // Handing it Vantail's `appDataDir` — named after `app.identifier` — would
+  // point a migrated install at an empty directory.
   const child = await vantailProcess.spawn(binary.program, [], {
     env: {
       HIDEOUT_AUTH_TOKEN: token,

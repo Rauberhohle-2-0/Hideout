@@ -92,6 +92,7 @@ interface ProviderCard {
   provider: AiProviderInfo;
   element: HTMLElement;
   refresh(): Promise<void>;
+  refreshHealth(): Promise<void>;
   setBusy(busy: boolean): void;
 }
 
@@ -199,14 +200,38 @@ function createProviderCard(provider: AiProviderInfo): ProviderCard {
     }
   }
 
+  /** Health only — what the periodic timer runs, so it never re-lists models. */
+  async function refreshHealth(): Promise<void> {
+    if (busy) return;
+    busy = true;
+    render();
+    try {
+      try {
+        health = await window.api.aiHealth(provider.id);
+        if (!health.ok) models = null;
+      } catch (e) {
+        health = { ok: false, error: errorText(e) };
+        models = null;
+      }
+    } finally {
+      busy = false;
+      render();
+    }
+  }
+
+  /** Full refresh — health, plus models when healthy. Runs on an explicit check. */
   async function refresh(): Promise<void> {
     if (busy) return;
     busy = true;
     render();
-
     try {
-      health = await window.api.aiHealth(provider.id);
-
+      try {
+        health = await window.api.aiHealth(provider.id);
+      } catch (e) {
+        health = { ok: false, error: errorText(e) };
+        models = null;
+        return;
+      }
       if (health.ok) {
         try {
           const raw = await window.api.aiListModels(provider.id);
@@ -219,9 +244,6 @@ function createProviderCard(provider: AiProviderInfo): ProviderCard {
       } else {
         models = null;
       }
-    } catch (e) {
-      health = { ok: false, error: errorText(e) };
-      models = null;
     } finally {
       busy = false;
       render();
@@ -229,7 +251,7 @@ function createProviderCard(provider: AiProviderInfo): ProviderCard {
   }
 
   render();
-  return { provider, element: card, refresh, setBusy: (b: boolean) => void (busy = b) };
+  return { provider, element: card, refresh, refreshHealth, setBusy: (b: boolean) => void (busy = b) };
 }
 
 // ---- MCP card --------------------------------------------------------------
@@ -245,6 +267,7 @@ interface McpCard {
   server: McpServerSafe;
   element: HTMLElement;
   refresh(): Promise<void>;
+  refreshHealth(): Promise<void>;
 }
 
 function createMcpCard(server: McpServerSafe, onChanged: () => Promise<void>): McpCard {
@@ -414,29 +437,50 @@ function createMcpCard(server: McpServerSafe, onChanged: () => Promise<void>): M
     }
   }
 
+  /** Health only — what the periodic timer runs, so it never re-lists tools. */
+  async function refreshHealth(): Promise<void> {
+    if (busy) return;
+    busy = true;
+    render();
+    try {
+      try {
+        health = await window.api.mcpHealth(server.id);
+        if (!health.ok) tools = null;
+      } catch (e) {
+        health = { ok: false, error: errorText(e) };
+        tools = null;
+      }
+    } finally {
+      busy = false;
+      render();
+    }
+  }
+
+  /** Full refresh — health, plus tools when healthy. Explicit "Check" or after edits. */
   async function refresh(): Promise<void> {
     if (busy) return;
     busy = true;
     render();
     try {
-      health = await window.api.mcpHealth(server.id);
+      try {
+        health = await window.api.mcpHealth(server.id);
+      } catch (e) {
+        health = { ok: false, error: errorText(e) };
+        tools = null;
+        return;
+      }
       if (health.ok) {
         try {
           const raw = await window.api.mcpListTools(server.id);
           tools = raw.map((t) => ({ name: t.name, description: t.description }));
         } catch (e) {
+          // Tools listing failed but health is fine — keep the list empty rather
+          // than turning a healthy status red.
           tools = [];
-          // keep health green but surface warning in error box as info? keep as-is
-          // Don't overwrite health.ok — just keep tools empty and optionally show error in list
-          // To avoid confusing red state, we don't set health error when tools fail
-          void errorText(e);
         }
       } else {
         tools = null;
       }
-    } catch (e) {
-      health = { ok: false, error: errorText(e) };
-      tools = null;
     } finally {
       busy = false;
       render();
@@ -476,7 +520,7 @@ function createMcpCard(server: McpServerSafe, onChanged: () => Promise<void>): M
   });
 
   render();
-  return { server, element: card, refresh };
+  return { server, element: card, refresh, refreshHealth };
 }
 
 // ---- assistant card ----------------------------------------------------------
@@ -703,6 +747,14 @@ async function refreshAll(showSpinner: boolean): Promise<void> {
   }
 }
 
+/** Periodic pass: refresh health only, leaving already-loaded models in place. */
+async function refreshAllHealth(): Promise<void> {
+  if (cards.length === 0) return;
+  await Promise.all(cards.map((c) => c.refreshHealth()));
+  lastCheck = Date.now();
+  updateLastCheck();
+}
+
 async function refreshAllMcp(showSpinner: boolean): Promise<void> {
   if (mcpCards.length === 0) {
     mcpLastCheck = Date.now();
@@ -717,6 +769,18 @@ async function refreshAllMcp(showSpinner: boolean): Promise<void> {
     mcpLastCheck = Date.now();
     updateMcpLastCheck();
   }
+}
+
+/** Periodic pass: refresh health only, leaving already-loaded tools in place. */
+async function refreshAllMcpHealth(): Promise<void> {
+  if (mcpCards.length === 0) {
+    mcpLastCheck = Date.now();
+    updateMcpLastCheck();
+    return;
+  }
+  await Promise.all(mcpCards.map((c) => c.refreshHealth()));
+  mcpLastCheck = Date.now();
+  updateMcpLastCheck();
 }
 
 async function loadMcpServers(): Promise<void> {
@@ -1402,10 +1466,9 @@ async function init(): Promise<void> {
     .getElementById(REFRESH_BTN_ID)
     ?.addEventListener("click", () => void refreshAll(true));
 
-  // Auto-refresh periodically so the status stays current.
+  // Auto-refresh health on a timer; models refresh on an explicit "Check now".
   setInterval(() => {
-    void refreshAll(false);
-    updateLastCheck();
+    void refreshAllHealth();
   }, REFRESH_INTERVAL_MS);
 
   if (cards.length > 0) await refreshAll(true);
@@ -1418,8 +1481,7 @@ async function init(): Promise<void> {
   setupMcpDialog();
   await loadMcpServers();
   setInterval(() => {
-    void refreshAllMcp(false);
-    updateMcpLastCheck();
+    void refreshAllMcpHealth();
   }, REFRESH_INTERVAL_MS);
   setInterval(updateMcpLastCheck, 1000);
 

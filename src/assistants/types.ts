@@ -9,7 +9,7 @@
  *
  * Persistence: one JSON file per assistant in HIDEOUT store dir (0o600, dirs 0o700).
  * Each assistant id maps to a file: `${storeDir}/assistants/${id}.json` (e.g. `gary.json` for assistant "Gary" with id "gary").
- * Platform dirs (mirrors Electron userData when not in Electron):
+ * Store directory resolved via shared/paths.ts:
  *   macOS:   ~/Library/Application Support/Hideout/assistants/<id>.json
  *   Windows: %APPDATA%/Hideout/assistants/<id>.json
  *   Linux:   $XDG_CONFIG_HOME/hideout/assistants/<id>.json or ~/.config/hideout/assistants/<id>.json
