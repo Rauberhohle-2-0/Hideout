@@ -9,19 +9,7 @@ describe("index.html", () => {
     expect(html.trimStart().toLowerCase()).toMatch(/^<!doctype html>/);
   });
 
-  test("drives the greeting with plain htmx attributes", () => {
-    expect(html).toContain('hx-get="/greet"');
-    expect(html).toContain('hx-trigger="change from:#who"');
-    expect(html).toContain('hx-include="#who"');
-    expect(html).toContain('hx-target="this"');
-    expect(html).toContain('hx-swap="innerHTML"');
-  });
-
-  test("has the hidden username field htmx includes", () => {
-    expect(html).toMatch(/<input id="who" type="hidden" name="name" value="friend"\s*\/>/);
-  });
-
-  test("loads the app module (which bundles htmx)", () => {
+  test("loads the app module", () => {
     expect(html).toContain('src="/src/renderer/main.ts"');
   });
 

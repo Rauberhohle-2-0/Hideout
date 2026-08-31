@@ -102,36 +102,13 @@
         </div>
       </header>
       <main class="flex min-h-0 flex-1 flex-col p-6">
-        <div class="grid min-h-0 flex-1 place-items-center">
-          <section
-            id="greeting"
-            aria-live="polite"
-            class="glass-pane w-full max-w-xl rounded-2xl border border-line p-8"
-            hx-get="/greet"
-            hx-trigger="change from:#who"
-            hx-include="#who"
-            hx-target="this"
-            hx-swap="innerHTML"
-          >
-            <!-- The user's name is filled in here by src/renderer/main.ts once
-                 the runtime has answered, then htmx re-requests /greet with it. -->
-            <input id="who" type="hidden" name="name" value="friend" />
-            <div class="flex items-center gap-3 animate-pulse">
-              <span class="size-2.5 rounded-full bg-emerald-400" aria-hidden="true"></span>
-              <p class="text-sm text-dim">Waking up…</p>
-            </div>
-          </section>
-        </div>
         <!-- Chat composer, docked to the bottom of the content area and always
              centred horizontally - a frosted-glass pill in the same style as
              the title-bar search (titlebar-group + card/line palette), with an
              attachment control, a free-text field and a voice-input control.
              Empty by design: no dummy data, and the message goes nowhere yet. -->
-        <div class="flex shrink-0 justify-center pt-8">
-          <div
-            id="composer"
-            class="titlebar-group flex h-12 w-full max-w-xl items-center rounded-full border border-line/70 bg-card/80 px-1.5 backdrop-blur-md"
-          >
+        <div class="mt-auto flex shrink-0 justify-center pt-8">
+          <div id="composer" class="titlebar-group flex h-12 w-full max-w-xl items-center rounded-full border border-line/70 bg-card/80 px-2 backdrop-blur-md">
             <button
               type="button"
               aria-label="Add attachment"
@@ -151,7 +128,7 @@
               type="text"
               placeholder="Ask anything"
               aria-label="Message"
-              class="min-w-0 flex-1 border-0 bg-transparent text-sm text-ink caret-ink outline-none placeholder:text-dim"
+              class="min-w-0 flex-1 border-0 bg-transparent pl-2 text-sm text-ink caret-ink outline-none placeholder:text-dim"
             />
             <button
               type="button"
@@ -165,7 +142,7 @@
       </main>
     </div>
     <noscript>
-      <p>This window needs JavaScript to greet you.</p>
+      <p>This window needs JavaScript.</p>
     </noscript>
   </body>
 </html>
