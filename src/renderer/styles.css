@@ -99,7 +99,6 @@
    centred while closed; opening slides the input in beside it. */
 #titlebar-search {
   justify-content: center;
-  gap: 0.5rem;
   transition:
     width 0.28s ease,
     padding-left 0.28s ease,
@@ -108,6 +107,7 @@
 }
 #titlebar-search.expanded {
   justify-content: flex-start;
+  gap: 0.5rem;
   width: 14rem;
   padding-left: 0.625rem;
   cursor: text;
