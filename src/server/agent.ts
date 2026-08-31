@@ -62,6 +62,8 @@ export interface AgentContext {
   presencePenalty?: number;
   seed?: number;
   stop?: string[];
+  /** Whether MCP tools may be called; default true (Exa etc. are enabled by default) */
+  useTools?: boolean;
 }
 
 /** A ChatMessage the caller gives us; our internal message carries tool fields. */
@@ -142,7 +144,7 @@ export async function* agentStream(
   provider: AiProvider,
   ctx: AgentContext,
 ): AsyncIterable<AgentEvent> {
-  const tools = await collectEnabledTools();
+  const tools = ctx.useTools === false ? [] : await collectEnabledTools();
   const toolMap = new Map<string, string>(); // tool name -> server id
   for (const entry of tools) toolMap.set(entry.tool.name, entry.serverId);
   const aiTools = tools.map((e) => e.tool);

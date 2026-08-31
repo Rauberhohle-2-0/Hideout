@@ -33,6 +33,8 @@ export interface AiChatIpcRequest {
   stop?: string[];
   /** Optional adherence: run this chat as this assistant (system prompt + default params) */
   assistantId?: string;
+  /** Whether the agent may call MCP tools (Exa etc.); default true */
+  useTools?: boolean;
 }
 
 export interface AiChatIpcResponse {
@@ -82,6 +84,34 @@ export interface AssistantAddRequest {
   providerId?: string;
   model?: string;
   enabled?: boolean;
+}
+
+// Chat wire types — persisted conversations, safe to expose
+export interface ChatMessageWire {
+  role: "user" | "assistant";
+  content: string;
+}
+
+export interface ChatSafe {
+  id: string;
+  title: string;
+  messages: ChatMessageWire[];
+  pinned: boolean;
+  model?: string;
+  assistantId?: string;
+  useTools?: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface ChatAddRequest {
+  id?: string;
+  title?: string;
+  messages?: ChatMessageWire[];
+  pinned?: boolean;
+  model?: string;
+  assistantId?: string;
+  useTools?: boolean;
 }
 
 // Chat stream wire types — SSE events emitted by the agent tool-loop in /chat/stream
@@ -175,6 +205,13 @@ export interface Api {
   assistantUpdate(id: string, patch: Partial<AssistantAddRequest>): Promise<AssistantSafe>;
   assistantRemove(id: string): Promise<{ ok: true }>;
   assistantSetEnabled(id: string, enabled: boolean): Promise<AssistantSafe>;
+  // Chats — persisted conversations (sidebar history + pinning)
+  chatList(): Promise<ChatSafe[]>;
+  chatGet(id: string): Promise<ChatSafe>;
+  chatCreate(config: ChatAddRequest): Promise<ChatSafe>;
+  chatUpdate(id: string, patch: Partial<ChatAddRequest>): Promise<ChatSafe>;
+  chatRemove(id: string): Promise<{ ok: true }>;
+  chatSetPinned(id: string, pinned: boolean): Promise<ChatSafe>;
 }
 
 declare global {

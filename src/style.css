@@ -604,33 +604,60 @@
     animation: spin 0.7s linear infinite;
   }
 
-  /* Right panel */
-  .side-panel {
-    flex: 0 0 240px;
-    max-width: 240px;
-    border-left: 1px solid var(--border);
+  /* Left chat sidebar (ChatGPT-style history + pinning) */
+  .chat-sidebar {
+    flex: 0 0 260px;
+    max-width: 260px;
+    border-right: 1px solid var(--border);
     overflow-y: auto;
-    padding: 14px 12px;
+    padding: 10px 10px 14px;
     display: flex;
     flex-direction: column;
-    gap: 18px;
+    gap: 16px;
+    background: color-mix(in srgb, var(--card) 45%, var(--bg));
   }
-  .side-panel.collapsed { display: none; }
+  .chat-sidebar.collapsed { display: none; }
+  .side-new-chat {
+    @apply flex w-full items-center gap-2 rounded-xl border border-line bg-card px-3 py-2.5 text-left text-[0.85rem] font-medium text-ink cursor-pointer;
+  }
+  .side-new-chat:hover { border-color: color-mix(in srgb, var(--accent) 50%, transparent); }
+  .side-group { display: flex; flex-direction: column; gap: 6px; min-height: 0; }
   .side-title {
-    @apply m-0 text-[0.72rem] font-semibold uppercase tracking-wider text-muted;
-    margin-bottom: 8px;
+    @apply m-0 px-1 text-[0.68rem] font-semibold uppercase tracking-wider text-muted;
   }
-  .side-list { display: flex; flex-direction: column; gap: 4px; }
-  .side-item {
-    @apply flex w-full items-center justify-between gap-2 rounded-lg border border-line bg-card px-2.5 py-2 text-left text-[0.82rem] text-ink cursor-pointer;
+  .chat-list { display: flex; flex-direction: column; gap: 2px; }
+  .chat-list:empty { display: none; }
+  .chat-item {
+    @apply flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left cursor-pointer border-none bg-transparent;
+    color: var(--text);
   }
-  .side-item:hover { border-color: color-mix(in srgb, var(--accent) 50%, transparent); }
-  .side-item.selected {
-    border-color: var(--accent);
-    color: var(--accent);
-    font-weight: 600;
+  .chat-item:hover { background: color-mix(in srgb, var(--border) 40%, transparent); }
+  .chat-item.active {
+    background: color-mix(in srgb, var(--accent) 16%, transparent);
+    color: var(--text);
   }
-  .side-item .grip { @apply text-[0.7rem] text-muted font-normal; }
+  .chat-item .chat-icon { flex: none; color: var(--muted); }
+  .chat-item .chat-title {
+    flex: 1 1 auto;
+    min-width: 0;
+    font-size: 0.8rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .chat-item .chat-actions {
+    flex: none;
+    display: none;
+    gap: 2px;
+  }
+  .chat-item:hover .chat-actions { display: flex; }
+  .chat-item .chat-actions button {
+    @apply flex h-6 w-6 items-center justify-center rounded-md cursor-pointer border-none bg-transparent;
+    color: var(--muted);
+  }
+  .chat-item .chat-actions button:hover { color: var(--text); background: color-mix(in srgb, var(--border) 45%, transparent); }
+  .chat-item .chat-actions button.pinned { color: var(--accent); }
+  .chat-empty { @apply px-1 text-[0.78rem] text-muted; }
 
   /* Composer */
   .composer-wrap {
@@ -669,8 +696,30 @@
   .composer-send:disabled { opacity: 0.5; cursor: default; }
   .composer-model {
     @apply inline-flex items-center gap-1.5 rounded-full border border-line bg-canvas px-3 py-1.5 text-[0.78rem] font-medium text-ink cursor-pointer ml-auto;
+    max-width: 220px;
+  }
+  .composer-model span {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .composer-model:hover { border-color: color-mix(in srgb, var(--accent) 50%, transparent); }
+  .composer-select {
+    @apply inline-flex items-center gap-1.5 rounded-full border border-line bg-canvas px-3 py-1.5 text-[0.78rem] font-medium text-ink cursor-pointer;
+    max-width: 180px;
+  }
+  .composer-select span {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .composer-select:hover { border-color: color-mix(in srgb, var(--accent) 50%, transparent); }
+  .tools-toggle { color: var(--muted); }
+  .tools-toggle.on {
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 16%, transparent);
+  }
+  .tools-toggle:disabled { opacity: 0.45; cursor: default; }
 
   /* Model menu popover */
   .model-menu {

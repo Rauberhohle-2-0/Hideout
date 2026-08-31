@@ -21,6 +21,8 @@ import type {
   Api,
   AssistantAddRequest,
   AssistantSafe,
+  ChatAddRequest,
+  ChatSafe,
   ChatStreamEvent,
   ChatStreamHandlers,
   McpAddServerRequest,
@@ -299,6 +301,40 @@ export function createApiClient(connection: SidecarConnection): Api {
         body: { enabled },
       });
       return assistant;
+    },
+
+    // ---- Chats ----
+
+    async chatList(): Promise<ChatSafe[]> {
+      const { chats } = await call<{ chats: ChatSafe[] }>("GET", "/api/chats");
+      if (!Array.isArray(chats)) throw new Error("Invalid response");
+      return chats;
+    },
+
+    async chatGet(id: string): Promise<ChatSafe> {
+      const { chat } = await call<{ chat: ChatSafe }>("GET", `/api/chats/${seg(id)}`);
+      return chat;
+    },
+
+    async chatCreate(config: ChatAddRequest): Promise<ChatSafe> {
+      const { chat } = await call<{ chat: ChatSafe }>("POST", "/api/chats", { body: config });
+      return chat;
+    },
+
+    async chatUpdate(id: string, patch: Partial<ChatAddRequest>): Promise<ChatSafe> {
+      const { chat } = await call<{ chat: ChatSafe }>("PATCH", `/api/chats/${seg(id)}`, { body: patch });
+      return chat;
+    },
+
+    async chatRemove(id: string): Promise<{ ok: true }> {
+      return call<{ ok: true }>("DELETE", `/api/chats/${seg(id)}`);
+    },
+
+    async chatSetPinned(id: string, pinned: boolean): Promise<ChatSafe> {
+      const { chat } = await call<{ chat: ChatSafe }>("POST", `/api/chats/${seg(id)}/pinned`, {
+        body: { pinned },
+      });
+      return chat;
     },
   };
 }

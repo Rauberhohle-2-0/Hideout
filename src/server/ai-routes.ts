@@ -21,7 +21,7 @@ function getRegistry() {
 
 function resolveAssistantChatContext(
   parsed: ValidChatBody,
-): { messages: AiMessage[]; model?: string; temperature?: number; maxTokens?: number; topP?: number; topK?: number; minP?: number; repeatPenalty?: number; frequencyPenalty?: number; presencePenalty?: number; seed?: number; stop?: string[] } {
+): { messages: AiMessage[]; model?: string; temperature?: number; maxTokens?: number; topP?: number; topK?: number; minP?: number; repeatPenalty?: number; frequencyPenalty?: number; presencePenalty?: number; seed?: number; stop?: string[]; useTools?: boolean } {
   if (!("assistantId" in parsed) || !parsed.assistantId) {
     return {
       messages: parsed.messages,
@@ -36,6 +36,7 @@ function resolveAssistantChatContext(
       ...(parsed.presencePenalty !== undefined ? { presencePenalty: parsed.presencePenalty } : {}),
       ...(parsed.seed !== undefined ? { seed: parsed.seed } : {}),
       ...(parsed.stop !== undefined ? { stop: parsed.stop } : {}),
+      useTools: parsed.useTools,
     };
   }
   const reg = getDefaultAssistantRegistry();
@@ -56,6 +57,7 @@ function resolveAssistantChatContext(
       ...(parsed.presencePenalty !== undefined ? { presencePenalty: parsed.presencePenalty } : {}),
       ...(parsed.seed !== undefined ? { seed: parsed.seed } : {}),
       ...(parsed.stop !== undefined ? { stop: parsed.stop } : {}),
+      useTools: parsed.useTools,
     };
   }
 
@@ -103,6 +105,7 @@ function resolveAssistantChatContext(
     ...(merged.presencePenalty !== undefined ? { presencePenalty: merged.presencePenalty } : {}),
     ...(merged.seed !== undefined ? { seed: merged.seed } : {}),
     ...(merged.stop !== undefined ? { stop: merged.stop } : {}),
+    useTools: parsed.useTools,
   };
 }
 

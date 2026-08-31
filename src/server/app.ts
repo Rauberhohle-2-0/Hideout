@@ -5,6 +5,7 @@ import { Logger } from "../logger.ts";
 import { aiRoutes } from "./ai-routes.ts";
 import { mcpRoutes } from "./mcp-routes.ts";
 import { assistantRoutes } from "./assistant-routes.ts";
+import { chatRoutes } from "./chat-routes.ts";
 
 const logger = new Logger({ prefix: "hono" });
 
@@ -53,6 +54,7 @@ app.use("*", async (c, next) => {
 app.route("/api/ai", aiRoutes);
 app.route("/api/mcp", mcpRoutes);
 app.route("/api/assistants", assistantRoutes);
+app.route("/api/chats", chatRoutes);
 
 // Root - plain text Hello World (matches spec)
 app.get("/", (c) => {

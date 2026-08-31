@@ -16,6 +16,8 @@ export type ValidChatBody = {
   seed?: number;
   stop?: string[];
   assistantId?: string;
+  /** Whether the agent may call MCP tools; default true */
+  useTools?: boolean;
 };
 
 const ROLES = new Set(["system", "user", "assistant", "tool"]);
@@ -64,6 +66,7 @@ export function validateChatBody(input: unknown): Validation<ValidChatBody> {
   }
   if (b.assistantId !== undefined && typeof b.assistantId !== "string") return { ok: false, errors: ["assistantId must be string"] };
   if (typeof b.assistantId === "string" && b.assistantId.length > 64) return { ok: false, errors: ["assistantId too long"] };
+  if (b.useTools !== undefined && typeof b.useTools !== "boolean") return { ok: false, errors: ["useTools must be boolean"] };
 
   return {
     ok: true,
@@ -82,6 +85,7 @@ export function validateChatBody(input: unknown): Validation<ValidChatBody> {
       seed: b.seed as number | undefined,
       stop: b.stop as string[] | undefined,
       assistantId: b.assistantId as string | undefined,
+      useTools: b.useTools as boolean | undefined,
     },
   };
 }
