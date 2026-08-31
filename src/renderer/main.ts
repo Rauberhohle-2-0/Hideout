@@ -95,7 +95,9 @@ function setSidebarCollapsed(collapsed: boolean, animating: boolean = true): voi
   for (const toggle of sidebarToggles) {
     toggle.setAttribute("aria-expanded", String(!collapsed));
   }
-  if (titleBarToggle) titleBarToggle.hidden = !collapsed;
+  // The title-bar copy of the controls (collapse + theme) appears only while
+  // the sidebar is closed, so both stay reachable in either state.
+  if (titleBarControls) titleBarControls.hidden = !collapsed;
 }
 
 function wireSidebarToggle(): void {
@@ -110,7 +112,7 @@ function wireSidebarToggle(): void {
 // Shared handles used by the toggle and the resize wiring.
 const sidebar = document.querySelector<HTMLElement>("#sidebar");
 const sidebarToggles = Array.from(document.querySelectorAll<HTMLButtonElement>("[data-sidebar-toggle]"));
-const titleBarToggle = document.querySelector<HTMLButtonElement>("#sidebar-toggle");
+const titleBarControls = document.querySelector<HTMLElement>("#titlebar-controls");
 
 if (sidebar) {
   wireSidebarToggle();
@@ -120,11 +122,14 @@ if (sidebar) {
     if (event.propertyName === "width") sidebar.classList.remove("collapsing");
   });
 
-  // Sit every toggle (the in-sidebar one and the collapsed title-bar one) on
-  // the exact same row as the macOS traffic lights, which settle
+  // Sit every bar button (the in-sidebar ones and the collapsed title-bar
+  // pair) on the exact same row as the macOS traffic lights, which settle
   // TITLEBAR_CONTROLS_PUSH below the centre of the bar.
-  for (const toggle of sidebarToggles) {
-    toggle.style.transform = `translateY(${TITLEBAR_CONTROLS_PUSH}px)`;
+  const barButtons = document.querySelectorAll<HTMLButtonElement>(
+    "[data-sidebar-toggle], [data-theme-toggle]",
+  );
+  for (const button of barButtons) {
+    button.style.transform = `translateY(${TITLEBAR_CONTROLS_PUSH}px)`;
   }
 }
 
@@ -161,4 +166,64 @@ function wireSidebarResize(): void {
 }
 
 wireSidebarResize();
+
+/**
+ * Dark/light theme.
+ *
+ * A `.dark` class on <html> flips the palette CSS variables (see styles.css),
+ * so every themed utility restyles at once. The choice is remembered in
+ * localStorage and falls back to the system preference. Each
+ * `[data-theme-toggle]` button shows the mode it would switch to (a moon in
+ * light, a sun in dark) and keeps every copy of itself in sync.
+ */
+const THEME_KEY = "hideout.theme";
+
+function themeIsDark(): boolean {
+  return document.documentElement.classList.contains("dark");
+}
+
+function applyTheme(dark: boolean): void {
+  document.documentElement.classList.toggle("dark", dark);
+  document.documentElement.style.colorScheme = dark ? "dark" : "light";
+  try {
+    localStorage.setItem(THEME_KEY, dark ? "dark" : "light");
+  } catch {
+    // No storage (e.g. a locked-down webview): the theme still applies for
+    // this session, it just will not be remembered.
+  }
+  const label = dark ? "Switch to light mode" : "Switch to dark mode";
+  for (const button of document.querySelectorAll<HTMLButtonElement>("[data-theme-toggle]")) {
+    button.setAttribute("aria-label", label);
+  }
+  const activeIcon = dark ? "dark" : "light";
+  for (const icon of document.querySelectorAll("[data-theme-icon]")) {
+    if (icon.getAttribute("data-theme-icon") === activeIcon) {
+      icon.removeAttribute("hidden");
+    } else {
+      icon.setAttribute("hidden", "");
+    }
+  }
+}
+
+function initTheme(): void {
+  let dark: boolean;
+  try {
+    const stored = localStorage.getItem(THEME_KEY);
+    dark =
+      stored === "dark" ||
+      (stored === null && window.matchMedia("(prefers-color-scheme: dark)").matches);
+  } catch {
+    dark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+  }
+  applyTheme(dark);
+}
+
+function wireThemeToggle(): void {
+  for (const button of document.querySelectorAll<HTMLButtonElement>("[data-theme-toggle]")) {
+    button.addEventListener("click", () => applyTheme(!themeIsDark()));
+  }
+}
+
+initTheme();
+wireThemeToggle();
 
