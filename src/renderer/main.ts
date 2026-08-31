@@ -69,11 +69,10 @@ function wireTitleBar(): void {
 wireTitleBar();
 
 /**
- * Collapse/enlarge the left sidebar and keep every toggle in sync.
+ * Collapse/enlarge the left sidebar and keep its toggle in sync.
  *
- * There are two buttons: one in the sidebar's top row (visible while open)
- * and one in the right-pane title bar (visible only while closed, so it stays
- * reachable once the sidebar has shrunk away).
+ * A single toggle lives in the right-side title-bar pill, which stays visible
+ * in both states, so the window controls are always reachable.
  */
 function setSidebarCollapsed(collapsed: boolean, animating: boolean = true): void {
   if (!sidebar) return;
@@ -95,9 +94,6 @@ function setSidebarCollapsed(collapsed: boolean, animating: boolean = true): voi
   for (const toggle of sidebarToggles) {
     toggle.setAttribute("aria-expanded", String(!collapsed));
   }
-  // The title-bar copy of the controls (collapse + theme) appears only while
-  // the sidebar is closed, so both stay reachable in either state.
-  if (titleBarControls) titleBarControls.hidden = !collapsed;
 }
 
 function wireSidebarToggle(): void {
@@ -122,21 +118,9 @@ if (sidebar) {
     if (event.propertyName === "width") sidebar.classList.remove("collapsing");
   });
 
-  // Sit every bar button (the in-sidebar ones and the collapsed title-bar
-  // pair) on the exact same row as the macOS traffic lights, which settle
-  // TITLEBAR_CONTROLS_PUSH below the centre of the bar.
-  const barButtons = document.querySelectorAll<HTMLButtonElement>(
-    "[data-sidebar-toggle], [data-theme-toggle]",
-  );
-  for (const button of barButtons) {
-    // The collapsed-state copy now lives inside the title-bar pill, which is
-    // pushed as one group instead; only the in-sidebar buttons need the
-    // per-button push to line up with the traffic lights.
-    if (titleBarControls?.contains(button)) continue;
-    button.style.transform = `translateY(${TITLEBAR_CONTROLS_PUSH}px)`;
-  }
-  // The whole pill sits on the same row as the window control buttons, so it
-  // uses the same TITLEBAR_CONTROLS_PUSH as the in-sidebar buttons.
+  // The whole right-side controls group sits on the same row as the macOS
+  // traffic lights, which settle TITLEBAR_CONTROLS_PUSH below the centre of
+  // the bar.
   if (titleBarControls) titleBarControls.style.transform = `translateY(${TITLEBAR_CONTROLS_PUSH}px)`;
 }
 

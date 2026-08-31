@@ -78,21 +78,11 @@
   pointer-events: none;
 }
 
-/* Keep the sidebar's own buttons hidden for the whole collapse/expand width
-   animation, so they never show squished while the sidebar resizes: the
-   collapse toggle and the dark-mode button beside it both fade out, and the
-   title-bar copies take over once the sidebar has shrunk away. */
-#sidebar.collapsing [data-sidebar-toggle],
-#sidebar.collapsing [data-theme-toggle] {
-  opacity: 0;
-  pointer-events: none;
-}
-
-/* The collapsed-state controls sit together on the right of the title bar as
-   macOS-style hairlined groups: a pill holding the theme + collapse buttons
-   and a separate circle for search. Both share this translucent frosted look
-   (background/border/padding come from the utilities on the elements; the
-   shadow is themed here). */
+/* The title-bar controls sit together on the right as macOS-style hairlined
+   groups: a pill holding the theme + collapse buttons and a separate circle
+   for search. Both share this translucent frosted look (background/border/
+   padding come from the utilities on the elements; the shadow is themed
+   here). They stay visible in both sidebar states. */
 .titlebar-group {
   box-shadow:
     inset 0 1px 0 rgb(255 255 255 / 55%),
