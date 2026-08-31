@@ -22,23 +22,28 @@
   body {
     height: 100%;
   }
-  /* The window is transparent. Only the right content pane paints an opaque
-     backdrop; the sidebar stays see-through so it can blur the desktop. */
   body {
+    /* A faint wash behind the frosted sidebar so its blur has something to
+       work on: a cool vertical gradient with a soft accent glow up top. */
+    background:
+      radial-gradient(
+        40rem 30rem at -10% 0%,
+        color-mix(in oklab, var(--color-accent) 14%, transparent),
+        transparent 60%
+      ),
+      linear-gradient(180deg, #16203a 0%, var(--color-canvas) 50%, #0a1122 100%);
     color: var(--color-ink);
     overflow: hidden;
   }
 }
 
-/* Left sidebar width, states, and frosted-glass surface. */
+/* Left sidebar: a frosted-glass pane. Translucent so the blurred backdrop
+   shows through; the blur + saturation boost sell the glass. */
 #sidebar {
   width: 16rem;
-  /* Opaque enough that the panel always reads as a surface; WKWebView drops
-     the desktop blur intermittently over a transparent window, so the tint
-     (not the backdrop filter) carries the look. */
-  background: rgb(15 23 42 / 68%);
-  -webkit-backdrop-filter: blur(20px) saturate(140%);
-  backdrop-filter: blur(20px) saturate(140%);
+  background: color-mix(in oklab, var(--color-card) 55%, transparent);
+  -webkit-backdrop-filter: blur(18px) saturate(150%);
+  backdrop-filter: blur(18px) saturate(150%);
 }
 
 /* No animation while the user drags the resize handle. */

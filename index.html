@@ -42,10 +42,8 @@
       aria-hidden="true"
       class="w-1.5 shrink-0 cursor-col-resize select-none bg-transparent transition-colors hover:bg-accent/30 active:bg-accent/50"
     ></div>
-    <!-- Right pane: the title bar strip over it, then the page content. This
-         pane paints an opaque canvas so only the sidebar stays translucent
-         against the transparent window. -->
-    <div class="flex min-w-0 flex-1 flex-col" style="background: var(--color-canvas)">
+    <!-- Right pane: the title bar strip over it, then the page content. -->
+    <div class="flex min-w-0 flex-1 flex-col">
       <!-- Custom title bar. A drag region (wired in src/renderer/main.ts via
            startDragging) that overlays the content on the right pane only. -->
       <header

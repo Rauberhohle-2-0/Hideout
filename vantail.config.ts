@@ -13,10 +13,8 @@ export default defineConfig({
     minWidth: 1000,
     minHeight: 680,
     // What shows before the page has painted, so a fast resize does not open
-    // a pale gap down the side. The window itself is transparent so the page
-    // can blur the desktop behind the sidebar (frosted glass).
+    // a pale gap down the side.
     backgroundColor: "#0f172a",
-    transparent: true,
     // Let the page draw its own title bar: the window content reaches the top
     // edge (titleBarStyle: "hidden") with room reserved for a bar about the
     // height of the system's own. The platform's buttons stay (macOS traffic
