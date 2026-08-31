@@ -740,3 +740,53 @@
   .model-menu .menu-item:hover { background: color-mix(in srgb, var(--border) 40%, transparent); }
   .model-menu .menu-item.selected { color: var(--accent); font-weight: 600; }
 }
+
+@layer components {
+  /* Collapsible reasoning (thinking) block — collapsed until the user expands it */
+  .reasoning {
+    margin: 2px 0 6px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--card) 60%, var(--bg));
+    overflow: hidden;
+    max-width: 100%;
+  }
+  .reasoning summary {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 6px 10px;
+    font-size: 0.74rem;
+    font-weight: 600;
+    color: var(--muted);
+    cursor: pointer;
+    list-style: none;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  .reasoning summary::-webkit-details-marker { display: none; }
+  .reasoning summary::before {
+    content: "▸";
+    font-size: 0.7rem;
+    transition: transform 0.12s ease;
+  }
+  .reasoning[open] summary::before { transform: rotate(90deg); }
+  .reasoning summary .reasoning-dot {
+    width: 10px;
+    height: 10px;
+    margin-left: auto;
+    border-radius: 50%;
+    background: var(--accent);
+    opacity: 0.7;
+    animation: pulse 1s ease-in-out infinite;
+  }
+  .reasoning-body {
+    padding: 0 12px 10px;
+    font-size: 0.78rem;
+    line-height: 1.5;
+    color: var(--muted);
+    white-space: pre-wrap;
+    word-break: break-word;
+    border-top: 1px solid var(--border);
+  }
+}

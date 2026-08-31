@@ -74,6 +74,8 @@ export interface AiChatChunk {
   model: string;
   delta: string;
   done: boolean;
+  /** `true` when `delta` is reasoning/thinking text, not the visible answer. */
+  reasoning?: boolean;
   finishReason?: AiChatResponse["finishReason"];
   /** Tool calls the model requested (sent on the final chunk when applicable). */
   toolCalls?: AiToolCall[];

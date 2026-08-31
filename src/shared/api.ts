@@ -117,6 +117,7 @@ export interface ChatAddRequest {
 // Chat stream wire types — SSE events emitted by the agent tool-loop in /chat/stream
 export type ChatStreamEvent =
   | { type: "delta"; delta: string; model: string }
+  | { type: "reasoning"; delta: string; model: string }
   | { type: "tool_start"; tool: string; args: Record<string, unknown> }
   | { type: "tool_end"; tool: string; ok: boolean; result: string }
   | { type: "done"; model: string; finishReason: string }

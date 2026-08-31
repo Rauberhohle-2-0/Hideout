@@ -41,6 +41,7 @@ export interface AgentTool {
 
 export type AgentEvent =
   | { type: "delta"; delta: string; model: string }
+  | { type: "reasoning"; delta: string; model: string }
   | { type: "tool_start"; tool: string; args: Record<string, unknown> }
   | { type: "tool_end"; tool: string; ok: boolean; result: string }
   | { type: "done"; model: string; finishReason: AiChatResponse["finishReason"] }
@@ -159,12 +160,20 @@ export async function* agentStream(
     try {
       for await (const chunk of provider.chatStream(history, toChatOptions(ctx, aiTools))) {
         if (chunk.model) roundModel = chunk.model;
+        // Yield the delta *before* checking done: some reasoning models stream
+        // their thinking separately and hand over the final answer on the very
+        // chunk where `done` flips true. Checking `done` first would break and
+        // silently throw that last answer away, surfacing as an empty reply.
+        if (chunk.delta) {
+          if (chunk.reasoning) {
+            yield { type: "reasoning", delta: chunk.delta, model: chunk.model ?? "" } as AgentEvent;
+          } else {
+            yield { type: "delta", delta: chunk.delta, model: chunk.model ?? "" } as AgentEvent;
+          }
+        }
         if (chunk.done) {
           roundCalls = chunk.toolCalls ?? [];
           break;
-        }
-        if (chunk.delta) {
-          yield { type: "delta", delta: chunk.delta, model: chunk.model ?? "" } as AgentEvent;
         }
       }
     } catch (err) {

@@ -60,6 +60,10 @@ interface OllamaToolDef {
 interface OllamaChatMessage {
   role: string;
   content: string;
+  /** Reasoning/thinking text — separate from `content` on reasoning models. */
+  thinking?: string;
+  reasoning_content?: string;
+  reasoning?: string;
   name?: string;
   tool_calls?: Array<{
     function?: { name?: string; arguments?: unknown };
@@ -420,7 +424,17 @@ export class OllamaProvider extends BaseProvider {
           } catch {
             continue; // skip malformed line
           }
-          const delta = parsed.message?.content ?? "";
+          // Surface reasoning when a model thinks and offers no visible content
+          // yet; once real content arrives it takes over. Native /api/chat uses
+          // `thinking`, OpenAI-compat uses `reasoning_content`/`reasoning`.
+          const contentDelta = parsed.message?.content ?? "";
+          const reasoningDelta =
+            parsed.message?.thinking ??
+            parsed.message?.reasoning_content ??
+            (parsed.message as { reasoning?: string })?.reasoning ??
+            "";
+          const delta = contentDelta || reasoningDelta;
+          const reasoning = !contentDelta && !!reasoningDelta;
           const isDone = parsed.done === true;
           if (delta || isDone) {
             const toolCalls = isDone ? this.parseToolCalls(parsed.message) : [];
@@ -429,6 +443,7 @@ export class OllamaProvider extends BaseProvider {
               model: parsed.model || model,
               delta,
               done: isDone,
+              reasoning,
               finishReason: isDone
                 ? toolCalls.length > 0
                   ? "tool_calls"
@@ -450,13 +465,21 @@ export class OllamaProvider extends BaseProvider {
       if (buf.trim()) {
         try {
           const parsed = JSON.parse(buf.trim()) as OllamaChatResponse;
-          const delta = parsed.message?.content ?? "";
+          const contentDelta = parsed.message?.content ?? "";
+          const reasoningDelta =
+            parsed.message?.thinking ??
+            parsed.message?.reasoning_content ??
+            (parsed.message as { reasoning?: string })?.reasoning ??
+            "";
+          const delta = contentDelta || reasoningDelta;
+          const reasoning = !contentDelta && !!reasoningDelta;
           const toolCalls = parsed.done === true ? this.parseToolCalls(parsed.message) : [];
           yield {
             id,
             model: parsed.model || model,
             delta,
             done: parsed.done === true,
+            reasoning,
             finishReason: parsed.done
               ? toolCalls.length > 0
                 ? "tool_calls"

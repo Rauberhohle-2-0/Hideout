@@ -228,6 +228,31 @@ function renderChatMessages(messages: ChatMessageWire[]): void {
   scrollToBottom();
 }
 
+/**
+ * Stream reasoning text into a collapsible <details> that is collapsed by
+ * default; the user can expand it to read the model's thinking.
+ */
+function renderReasoning(container: HTMLElement, text: string): void {
+  let details = container.querySelector("details.reasoning") as HTMLDetailsElement | null;
+  let body: HTMLElement;
+  if (!details) {
+    details = el("details", "reasoning") as HTMLDetailsElement;
+    const summary = el("summary");
+    summary.append(el("span", undefined, "Reasoning"));
+    const spinner = el("span") as HTMLSpanElement;
+    spinner.className = "reasoning-dot";
+    summary.append(spinner);
+    body = el("div", "reasoning-body");
+    details.append(summary, body);
+    const bubble = container.querySelector(".bubble");
+    if (bubble) container.insertBefore(details, bubble);
+    else container.append(details);
+  } else {
+    body = details.querySelector(".reasoning-body") as HTMLElement;
+  }
+  body.textContent += text;
+}
+
 function renderToolActivity(container: HTMLElement, toolStart: ChatStreamEvent & { type: "tool_start" }): void {
   const line = el("div", "tool-line");
   line.dataset.tool = toolStart.tool;
@@ -322,8 +347,14 @@ async function sendMessage(): Promise<void> {
     onEvent(event: ChatStreamEvent) {
       switch (event.type) {
         case "delta":
+          // First real answer token: reasoning is done, its activity dot stops.
+          container.querySelector("details.reasoning .reasoning-dot")?.remove();
           answer += event.delta;
           bubble.textContent = answer;
+          scrollToBottom();
+          break;
+        case "reasoning":
+          renderReasoning(container, event.delta);
           scrollToBottom();
           break;
         case "tool_start":
