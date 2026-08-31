@@ -72,37 +72,63 @@
              with the theme toggle to its left. Both move together, so the
              dark-mode button stays one button left of collapse in either
              state. -->
-        <div id="titlebar-controls" class="ml-auto flex items-center gap-1" hidden>
-          <button
-            data-theme-toggle
-            type="button"
-            aria-label="Switch to dark mode"
-            class="grid size-6 place-items-center rounded-md text-dim transition-colors hover:bg-black/10 hover:text-ink dark:hover:bg-white/10"
+        <!-- The collapsed-state controls sit together in one continuous oblong
+             pill parked on the right of the title bar once the sidebar has
+             shrunk away (chrome in .titlebar-group, styles.css). It mirrors a
+             macOS segmented toolbar: each icon sits on a grey chip when
+             hovered/pressed, and the sidebar toggle stays highlighted while
+             collapsed (it's the active view). -->
+        <div
+          id="titlebar-controls"
+          class="ml-auto flex items-center mt-2 mb-0.5"
+          hidden
+        >
+          <div
+            class="titlebar-group flex h-[30px] items-center rounded-full border border-line/70 bg-card/80 px-1 backdrop-blur-md"
           >
-            <svg class="size-3.5" data-theme-icon="light" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
-            </svg>
-            <svg class="size-3.5" data-theme-icon="dark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" hidden>
-              <circle cx="12" cy="12" r="4" />
-              <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
-            </svg>
-          </button>
-          <button
-            id="sidebar-toggle"
-            data-sidebar-toggle
-            type="button"
-            aria-label="Toggle sidebar"
-            aria-expanded="true"
-            class="grid size-6 place-items-center rounded-md text-dim transition-colors hover:bg-black/10 hover:text-ink dark:hover:bg-white/10"
-          >
-            <svg class="size-3.5" viewBox="0 0 16 16" aria-hidden="true">
-              <rect x="2" y="2" width="12" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="1.5" />
-              <line x1="7" y1="2" x2="7" y2="14" stroke="currentColor" stroke-width="1.5" />
-            </svg>
-          </button>
+            <button
+              data-theme-toggle
+              type="button"
+              aria-label="Switch to dark mode"
+              class="grid size-7 place-items-center rounded-full text-dim transition-colors duration-150 hover:bg-black/10 hover:text-ink active:bg-black/15 dark:hover:bg-white/10 dark:hover:text-ink dark:active:bg-white/15"
+            >
+              <svg class="size-5" data-theme-icon="light" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+              </svg>
+              <svg class="size-5" data-theme-icon="dark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" hidden>
+                <circle cx="12" cy="12" r="4" />
+                <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
+              </svg>
+            </button>
+            <button
+              id="sidebar-toggle"
+              data-sidebar-toggle
+              type="button"
+              aria-label="Toggle sidebar"
+              aria-expanded="true"
+              class="grid size-7 place-items-center rounded-full text-dim transition-colors duration-150 hover:bg-black/10 hover:text-ink active:bg-black/15 dark:hover:bg-white/10 dark:hover:text-ink dark:active:bg-white/15"
+            >
+              <svg class="size-5" viewBox="0 0 16 16" aria-hidden="true">
+                <rect x="2" y="2" width="12" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="1.5" />
+                <line x1="7" y1="2" x2="7" y2="14" stroke="currentColor" stroke-width="1.5" />
+              </svg>
+            </button>
+            <div class="mx-0.5 h-4 w-px bg-line dark:bg-white/15" aria-hidden="true"></div>
+            <button
+              id="titlebar-search"
+              type="button"
+              aria-label="Search"
+              class="grid size-7 place-items-center rounded-full text-dim transition-colors duration-150 hover:bg-black/10 hover:text-ink active:bg-black/15 dark:hover:bg-white/10 dark:hover:text-ink dark:active:bg-white/15"
+            >
+              <svg class="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="11" cy="11" r="8" />
+                <path d="m21 21-4.3-4.3" />
+              </svg>
+            </button>
+          </div>
         </div>
       </header>
-      <main class="flex min-h-0 flex-1 items-center justify-center p-6">
+      <main class="grid min-h-0 flex-1 place-items-center p-6">
         <section
           id="greeting"
           aria-live="polite"

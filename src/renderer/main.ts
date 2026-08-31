@@ -129,6 +129,10 @@ if (sidebar) {
     "[data-sidebar-toggle], [data-theme-toggle]",
   );
   for (const button of barButtons) {
+    // The collapsed-state copy now lives inside the title-bar pill, which is
+    // centred as one group; only the in-sidebar buttons need the per-button
+    // push to line up with the traffic lights.
+    if (titleBarControls?.contains(button)) continue;
     button.style.transform = `translateY(${TITLEBAR_CONTROLS_PUSH}px)`;
   }
 }
