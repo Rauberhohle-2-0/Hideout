@@ -32,7 +32,7 @@
            startDragging) that overlays the content on the right pane only. -->
       <header
         data-drag
-        class="flex h-[var(--vantail-titlebar-height,36px)] shrink-0 select-none items-center"
+        class="flex h-[var(--vantail-titlebar-height,36px)] shrink-0 select-none items-start"
         style="padding-left: 0.5rem; padding-right: 1.25rem"
       >
         <!-- The theme + collapse buttons and the search button live here on
@@ -44,16 +44,16 @@
           class="ml-auto flex items-center gap-1.5"
         >
           <div
-            class="titlebar-group flex h-[30px] items-center rounded-full border border-line/70 bg-card/80 px-1.5 backdrop-blur-md"
+            class="titlebar-group flex h-[34px] items-center rounded-full border border-line/70 bg-card/80 px-1.5 backdrop-blur-md"
           >
             <button
               data-theme-toggle
               type="button"
               aria-label="Switch to dark mode"
-              class="grid size-7 place-items-center rounded-full text-dim transition-colors duration-150 hover:bg-black/10 hover:text-ink active:bg-black/15 dark:hover:bg-white/10 dark:hover:text-ink dark:active:bg-white/15"
+              class="grid size-8 place-items-center rounded-xl text-dim transition-colors duration-150 hover:bg-black/15 hover:text-ink active:bg-black/20 dark:hover:bg-white/15 dark:hover:text-ink dark:active:bg-white/20"
             >
-              <i class="size-4" data-theme-icon="light" data-lucide="moon"></i>
-              <i class="size-4" data-theme-icon="dark" data-lucide="sun" hidden></i>
+              <i class="size-5" data-theme-icon="light" data-lucide="moon"></i>
+              <i class="size-5" data-theme-icon="dark" data-lucide="sun" hidden></i>
             </button>
             <button
               id="sidebar-toggle"
@@ -61,18 +61,18 @@
               type="button"
               aria-label="Toggle sidebar"
               aria-expanded="true"
-              class="grid size-7 place-items-center rounded-full text-dim transition-colors duration-150 hover:bg-black/10 hover:text-ink active:bg-black/15 dark:hover:bg-white/10 dark:hover:text-ink dark:active:bg-white/15"
+              class="grid size-8 place-items-center rounded-xl text-dim transition-colors duration-150 hover:bg-black/15 hover:text-ink active:bg-black/20 dark:hover:bg-white/15 dark:hover:text-ink dark:active:bg-white/20"
             >
-              <i class="size-4" data-lucide="panel-left"></i>
+              <i class="size-5" data-lucide="panel-left"></i>
             </button>
           </div>
           <button
             id="titlebar-search"
             type="button"
             aria-label="Search"
-            class="titlebar-group grid size-7 shrink-0 place-items-center rounded-full border border-line/70 bg-card/80 text-dim transition-colors duration-150 hover:bg-black/10 hover:text-ink active:bg-black/15 dark:hover:bg-white/10 dark:hover:text-ink dark:active:bg-white/15 backdrop-blur-md"
+            class="titlebar-group grid size-8 shrink-0 place-items-center rounded-xl border border-line/70 bg-card/80 text-dim transition-colors duration-150 hover:bg-black/15 hover:text-ink active:bg-black/20 dark:hover:bg-white/15 dark:hover:text-ink dark:active:bg-white/20 backdrop-blur-md"
           >
-            <i class="size-4" data-lucide="search"></i>
+            <i class="size-5" data-lucide="search"></i>
           </button>
         </div>
       </header>

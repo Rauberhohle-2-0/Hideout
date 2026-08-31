@@ -70,6 +70,16 @@ function wireTitleBar(): void {
   // Settle the lights a little below centre, and breathe off the leading edge.
   const y = Math.round(height / 2 - buttonHeight / 2 + TITLEBAR_CONTROLS_PUSH);
   void appWindow?.setTrafficLightPosition(20, y);
+
+  // Park the right-side controls on the very same row as the traffic lights:
+  // the header aligns them to its top (items-start), so pushing the group
+  // down by this margin drops its vertical centre exactly onto the lights'.
+  const controls = document.querySelector<HTMLElement>("#titlebar-controls");
+  if (controls) {
+    const lightsCenter = height / 2 + TITLEBAR_CONTROLS_PUSH;
+    const top = Math.max(0, Math.round(lightsCenter - controls.offsetHeight / 2));
+    controls.style.marginTop = `${top}px`;
+  }
 }
 
 wireTitleBar();
@@ -111,7 +121,7 @@ function wireSidebarToggle(): void {
   }
 }
 
-// Shared handle used by the toggle and the resize wiring.
+// Shared handles used by the toggle and the resize wiring.
 const sidebar = document.querySelector<HTMLElement>("#sidebar");
 const sidebarToggles = Array.from(document.querySelectorAll<HTMLButtonElement>("[data-sidebar-toggle]"));
 
