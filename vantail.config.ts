@@ -14,7 +14,7 @@ export default defineConfig({
     minHeight: 680,
     // What shows before the page has painted, so a fast resize does not open
     // a pale gap down the side.
-    backgroundColor: "#0f172a",
+    backgroundColor: "#ffffff",
     // Let the page draw its own title bar: the window content reaches the top
     // edge (titleBarStyle: "hidden") with room reserved for a bar about the
     // height of the system's own. The platform's buttons stay (macOS traffic

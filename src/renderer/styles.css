@@ -9,11 +9,11 @@
  * the palette is defined here for the whole page.
  */
 @theme {
-  --color-ink: #e2e8f0;
-  --color-dim: #94a3b8;
-  --color-canvas: #0f172a;
-  --color-card: #1e293b;
-  --color-line: #334155;
+  --color-ink: #0f172a;
+  --color-dim: #64748b;
+  --color-canvas: #ffffff;
+  --color-card: #f8fafc;
+  --color-line: #e2e8f0;
   --color-accent: #7aa2f7;
 }
 
@@ -24,24 +24,31 @@
   }
   body {
     /* A faint wash behind the frosted sidebar so its blur has something to
-       work on: a cool vertical gradient with a soft accent glow up top. */
+       work on: a white gradient with a soft accent glow up top. */
     background:
       radial-gradient(
         40rem 30rem at -10% 0%,
-        color-mix(in oklab, var(--color-accent) 14%, transparent),
+        color-mix(in oklab, var(--color-accent) 10%, transparent),
         transparent 60%
       ),
-      linear-gradient(180deg, #16203a 0%, var(--color-canvas) 50%, #0a1122 100%);
+      linear-gradient(180deg, #ffffff 0%, var(--color-canvas) 55%, #f1f5f9 100%);
     color: var(--color-ink);
     overflow: hidden;
   }
 }
 
 /* Left sidebar: a frosted-glass pane. Translucent so the blurred backdrop
-   shows through; the blur + saturation boost sell the glass. */
+   shows through; the blur + saturation boost sell the glass; a top-lit
+   sheen and hairline highlights give it the polished edge. On the light
+   theme the sheen is a brighter white and the right seam a faint dark. */
 #sidebar {
   width: 16rem;
-  background: color-mix(in oklab, var(--color-card) 55%, transparent);
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 70%) 0%, transparent 35%),
+    color-mix(in oklab, var(--color-card) 70%, transparent);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 80%),
+    inset -1px 0 0 rgb(15 23 42 / 6%);
   -webkit-backdrop-filter: blur(18px) saturate(150%);
   backdrop-filter: blur(18px) saturate(150%);
 }
