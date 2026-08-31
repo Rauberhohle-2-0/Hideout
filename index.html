@@ -10,15 +10,13 @@
   <body class="flex h-screen flex-col antialiased">
     <!-- Custom title bar. The whole bar is a drag region (wired in
          src/renderer/main.ts via startDragging); the platform's own traffic
-         lights lead the bar, nudged to centre in it by main.ts, and the
-         leading-edge inset is reserved so the title clears them. -->
+         lights sit at the leading edge. No title here - the bar is left to
+         the window controls, padded rather than clamped to the corner. -->
     <header
       data-drag
       class="flex h-[var(--vantail-titlebar-height,28px)] shrink-0 select-none items-center border-b border-line/60"
-      style="padding-left: var(--vantail-titlebar-inset-left, 1rem)"
-    >
-      <span class="pl-2 text-sm font-medium text-dim">Hideout</span>
-    </header>
+      style="padding-left: var(--vantail-titlebar-inset-left, 1.25rem); padding-right: 1.25rem"
+    ></header>
     <main class="flex min-h-0 flex-1 items-center justify-center p-6">
       <section
         id="greeting"

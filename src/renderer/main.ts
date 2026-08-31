@@ -8,7 +8,7 @@
  *     hidden `#who` field, then let htmx fire the `/greet` request.
  */
 import "htmx.org";
-import { appWindow, os } from "@vantail/api";
+import { appWindow, os, titleBarMetrics } from "@vantail/api";
 import { DEFAULT_NAME, WHO_SELECTOR } from "../shared/constants.ts";
 
 // Trimmed, non-empty, and never used mid-tag - just a friendly name.
@@ -44,8 +44,8 @@ void greetByOsUser();
  * `-webkit-app-region: drag` is a Chromium extension and does nothing in
  * WKWebView, so the bar is dragged by telling the runtime to start dragging
  * on pointer-down instead. The platform draws and handles the window buttons
- * (macOS traffic lights); the page reserves room for them on the leading
- * edge and just centres them in the bar.
+ * (macOS traffic lights); we place them so they stay centred in the bar and
+ * keep a comfortable margin off the rounded corner - padded, not clamped.
  */
 function wireTitleBar(): void {
   const bar = document.querySelector<HTMLElement>("[data-drag]");
@@ -55,8 +55,10 @@ function wireTitleBar(): void {
     void appWindow?.startDragging();
   });
 
-  // Align the traffic lights vertically with the middle of the bar.
-  void appWindow?.centerTrafficLights();
+  const { height = 28, buttonHeight = 14 } = titleBarMetrics() ?? {};
+  // Vertically centre the lights in the bar and breathe 12px off the leading
+  // edge, a little more than the OS crammed-in default.
+  void appWindow?.setTrafficLightPosition(20, Math.round(height / 2 - buttonHeight / 2));
 }
 
 wireTitleBar();
