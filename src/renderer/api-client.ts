@@ -72,6 +72,8 @@ function parseSseBlock(block: string): ChatStreamEvent | undefined {
   switch (type) {
     case "delta":
       return { type: "delta", delta: String(obj.delta ?? ""), model: String(obj.model ?? "") };
+    case "reasoning":
+      return { type: "reasoning", delta: String(obj.delta ?? ""), model: String(obj.model ?? "") };
     case "tool_start":
       return {
         type: "tool_start",
@@ -166,6 +168,11 @@ export function createApiClient(connection: SidecarConnection): Api {
 
     // ---- Streaming chat (SSE over the agent tool-loop) ----
     async aiChatStream(req: AiChatIpcRequest, handlers: ChatStreamHandlers): Promise<void> {
+      // The runtime's default request timeout is 30 s, but this stream can
+      // legitimately sit silent for longer: the agent collects MCP tools first
+      // (Exa is spawned via `npx`), and reasoning models may "think" for a while
+      // before their first token. Raise it so a slow start does not trip the
+      // transport and surface as a bogus disconnect.
       const stream = await network.stream({
         url: `${baseUrl}/api/ai/chat/stream`,
         method: "POST",
@@ -175,6 +182,7 @@ export function createApiClient(connection: SidecarConnection): Api {
           accept: "text/event-stream",
         },
         body: JSON.stringify(req),
+        timeoutMs: 10 * 60_000,
       });
 
       // SSE framing: events are separated by blank lines; each field is a line

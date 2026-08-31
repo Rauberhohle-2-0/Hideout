@@ -245,6 +245,12 @@ aiRoutes.post("/chat/stream", async (c) => {
       const send = (event: string, data: unknown): void => {
         controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
       };
+      // Send one byte immediately. The rest of the work — collecting MCP tools
+      // (which can spawn exa via `npx`) and a reasoning model's first token —
+      // can take a while, and the runtime's request timeout runs from the start
+      // of the call, not from whenever we first flush. An instant keep-alive
+      // therefore stops a slow start from being read as a dropped connection.
+      send("start", { done: false });
       try {
         for await (const evt of agentStream(provider, ctx)) {
           send(evt.type, evt);
