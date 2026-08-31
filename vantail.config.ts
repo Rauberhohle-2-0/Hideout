@@ -20,7 +20,7 @@ export default defineConfig({
     // height of the system's own. The platform's buttons stay (macOS traffic
     // lights); the renderer drags the bar and centres them in it.
     titleBarStyle: "hidden",
-    titleBarHeight: 28,
+    titleBarHeight: 36,
   },
   permissions: {
     // Everything is denied until you ask for it. This app needs nothing native
