@@ -42,7 +42,7 @@
             id="model-dropdown"
             role="listbox"
             aria-label="Models"
-            class="glass-pane absolute left-0 top-[calc(100%+0.5rem)] z-50 w-50 rounded-xl border border-line/70 px-15 py-2 shadow-2xl"
+            class="glass-pane absolute left-0 top-[calc(100%+0.5rem)] z-50 w-44 rounded-xl border border-line/70 px-15 py-2 shadow-2xl"
             hidden
           ></div>
         </div>
@@ -52,6 +52,13 @@
              reachable from the same place. -->
         <div id="titlebar-controls" data-titlebar-row class="ml-auto flex items-center gap-1.5">
           <div class="titlebar-group flex h-[40px] items-center rounded-full border border-line/70 bg-card/80 px-1.5 backdrop-blur-md">
+            <button
+              type="button"
+              aria-label="Settings"
+              class="grid size-8 place-items-center rounded-full text-dim transition-colors duration-150 hover:bg-black/10 hover:text-ink active:bg-black/15 dark:hover:bg-white/10 dark:hover:text-ink dark:active:bg-white/15"
+            >
+              <i class="size-5" data-lucide="settings"></i>
+            </button>
             <button
               data-theme-toggle
               type="button"
