@@ -10,8 +10,8 @@ export default defineConfig({
     title: "Hideout",
     width: 1280,
     height: 800,
-    minWidth: 760,
-    minHeight: 560,
+    minWidth: 1000,
+    minHeight: 680,
     // What shows before the page has painted, so a fast resize does not open
     // a pale gap down the side.
     backgroundColor: "#0f172a",
