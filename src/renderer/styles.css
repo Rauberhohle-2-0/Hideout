@@ -83,6 +83,21 @@
   pointer-events: none;
 }
 
+/* With the sidebar collapsed (body.sidebar-collapsed, toggled from
+   src/renderer/main.ts), the model selector no longer trails the sidebar's
+   edge and would slip under the macOS traffic lights, which float over the
+   window's leading edge. Slide it right by exactly the room the runtime
+   reserves for the window buttons (--vantail-titlebar-inset-left; a sensible
+   fallback outside the runtime, where there are no buttons to clear). */
+body.sidebar-collapsed #model-selector {
+  margin-left: var(--vantail-titlebar-inset-left, 4.5rem);
+}
+
+/* Slide with the sidebar so the pill eases right as it collapses. */
+#model-selector {
+  transition: margin-left 0.2s ease-out;
+}
+
 /* The title-bar controls sit together on the right as macOS-style hairlined
    groups: a pill holding the theme + collapse buttons and a separate circle
    for search. Both share this translucent frosted look (background/border/

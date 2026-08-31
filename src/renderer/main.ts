@@ -201,6 +201,12 @@ function setSidebarCollapsed(collapsed: boolean, animating: boolean = true): voi
   for (const toggle of sidebarToggles) {
     toggle.setAttribute('aria-expanded', String(!collapsed))
   }
+
+  // Tell the stylesheet how the bar is laid out: with the sidebar gone, the
+  // model selector would slip under the macOS traffic lights, which float
+  // over the window's leading edge - CSS slides it right to clear them
+  // (body.sidebar-collapsed #model-selector in styles.css).
+  document.body.classList.toggle('sidebar-collapsed', collapsed)
 }
 
 function wireSidebarToggle(): void {
