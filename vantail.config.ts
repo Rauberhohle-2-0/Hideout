@@ -26,6 +26,11 @@ export default defineConfig({
     minHeight: 480,
     // Matches the light --bg in index.html so a live resize shows no pale gap.
     backgroundColor: "#f6f7f9",
+    // macOS native look: the window draws no title bar, but the system
+    // traffic lights stay. The page runs to the top edge; the titlebar strip
+    // in index.html sizes itself from the --vantail-titlebar-* CSS variables
+    // and drags the window (see renderer.ts setupTitleBar).
+    titleBarStyle: "hidden",
   },
 
   permissions: {

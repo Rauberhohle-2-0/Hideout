@@ -48,19 +48,79 @@
     }
 
     * { box-sizing: border-box; }
+
+    /* Native feel: hide the scrollbar entirely while keeping the page (and
+       inner overflow areas) scrollable. On macOS WKWebView overlay scrollbars
+       only appear during a scroll anyway; this removes them on every platform
+       without touching scroll behavior — wheel, trackpad, keyboard and
+       scrollIntoView all keep working. */
+    * {
+      scrollbar-width: none;      /* Firefox */
+      -ms-overflow-style: none;   /* legacy Edge/IE */
+    }
+    *::-webkit-scrollbar {
+      display: none;              /* WebKit / WKWebView */
+      width: 0;
+      height: 0;
+    }
+
     html, body { height: 100%; }
     body {
       margin: 0;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;   /* the page itself never scrolls */
       font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
       background: var(--bg);
       color: var(--text);
       -webkit-font-smoothing: antialiased;
     }
 
+    /* Custom title bar. It is pinned (flex: none) above a content area that
+       scrolls on its own, so the bar and the traffic-light region never move
+       and no content can ever slide up behind them. */
+    .titlebar {
+      flex: 0 0 auto;
+      position: relative;
+      z-index: 10;
+      width: 100%;
+      height: var(--vantail-titlebar-height, 32px);
+      padding-left: var(--vantail-titlebar-inset-left, 0px);
+      padding-right: var(--vantail-titlebar-inset-right, 0px);
+      display: flex;
+      align-items: center;
+      background: var(--bg);
+      border-bottom: 1px solid var(--border);
+      user-select: none;
+      -webkit-user-select: none;
+      cursor: default;
+    }
+    .titlebar-title {
+      font-size: 0.78rem;
+      font-weight: 600;
+      color: var(--muted);
+      letter-spacing: 0.01em;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    /* The content area is its own scroll container, clipped below the bar. */
     .app {
+      flex: 1 1 auto;
+      min-height: 0;        /* allow it to shrink so overflow scrolls inside */
+      width: 100%;
+      max-width: none;
+      overflow-y: auto;
+      margin: 0;
+      padding: 20px 20px 48px;
+    }
+    /* Keep the centered ~640px reading column now that .app spans the width. */
+    .app > * {
+      width: 100%;
       max-width: 640px;
-      margin: 0 auto;
-      padding: 32px 20px 48px;
+      margin-left: auto;
+      margin-right: auto;
     }
 
     header.top {
@@ -407,6 +467,9 @@
   </style>
 </head>
 <body>
+  <div class="titlebar" id="titlebar">
+    <span class="titlebar-title">Hideout</span>
+  </div>
   <main class="app">
     <header class="top">
       <div>

@@ -8,7 +8,7 @@ import type {
   McpServerSafe,
 } from "../shared/api.ts";
 // Alias avoids the local `dialog` HTML element inside the dialog setup functions.
-import { dialog as vantailDialog } from "@vantail/api";
+import { appWindow, dialog as vantailDialog } from "@vantail/api";
 
 declare global {
   interface Window {
@@ -17,6 +17,7 @@ declare global {
 }
 
 const REFRESH_INTERVAL_MS = 15_000;
+const TITLEBAR_ID = "titlebar";
 const CONTENT_ID = "content";
 const REFRESH_BTN_ID = "refresh-btn";
 const REFRESH_ICON_ID = "refresh-icon";
@@ -1552,7 +1553,34 @@ function setupAssistantDialog(): void {
   });
 }
 
+/**
+ * Make the custom title bar draggable. With a hidden title bar there's no
+ * native drag region, so the window is moved programmatically: on a left-click
+ * `pointerdown` in the bar (not on the buttons inside it) we hand the drag to
+ * the platform. `-webkit-app-region: drag` is a Chromium extension that does
+ * nothing in a WKWebView, which is why this is a call and not a CSS property.
+ */
+function setupTitleBar(): void {
+  const bar = document.getElementById(TITLEBAR_ID);
+  if (!bar) return;
+  bar.addEventListener("pointerdown", (event) => {
+    // Let buttons and inputs be clicked rather than dragged.
+    if ((event.target as Element).closest("button, input, a, select, textarea")) return;
+    if (event.buttons === 1) void appWindow.startDragging();
+  });
+  // A hidden title bar has no native double-click-to-zoom — macOS only does
+  // that for the real title bar and the green traffic-light button. So we
+  // hand it ourselves: double-click anything draggable in the bar to toggle
+  // maximized. Nothing to do on a double-click over a button/input.
+  bar.addEventListener("dblclick", (event) => {
+    if ((event.target as Element).closest("button, input, a, select, textarea")) return;
+    void appWindow.toggleMaximize();
+  });
+}
+
 async function init(): Promise<void> {
+  setupTitleBar();
+
   const content = document.getElementById(CONTENT_ID);
   if (!content) return;
 
