@@ -105,10 +105,9 @@ function wireSidebarToggle(): void {
   }
 }
 
-// Shared handles used by the toggle and the resize wiring.
+// Shared handle used by the toggle and the resize wiring.
 const sidebar = document.querySelector<HTMLElement>("#sidebar");
 const sidebarToggles = Array.from(document.querySelectorAll<HTMLButtonElement>("[data-sidebar-toggle]"));
-const titleBarControls = document.querySelector<HTMLElement>("#titlebar-controls");
 
 if (sidebar) {
   wireSidebarToggle();
@@ -117,11 +116,6 @@ if (sidebar) {
   sidebar.addEventListener("transitionend", (event) => {
     if (event.propertyName === "width") sidebar.classList.remove("collapsing");
   });
-
-  // The whole right-side controls group sits on the same row as the macOS
-  // traffic lights, which settle TITLEBAR_CONTROLS_PUSH below the centre of
-  // the bar.
-  if (titleBarControls) titleBarControls.style.transform = `translateY(${TITLEBAR_CONTROLS_PUSH}px)`;
 }
 
 /**
