@@ -55,10 +55,11 @@ function wireTitleBar(): void {
     void appWindow?.startDragging();
   });
 
-  const { height = 28, buttonHeight = 14 } = titleBarMetrics() ?? {};
-  // Vertically centre the lights in the bar and breathe 12px off the leading
-  // edge, a little more than the OS crammed-in default.
-  void appWindow?.setTrafficLightPosition(20, Math.round(height / 2 - buttonHeight / 2));
+  const { height = 36, buttonHeight = 14 } = titleBarMetrics() ?? {};
+  // Vertically settle the lights just below centre so they keep a little more
+  // space on top, and breathe 12px off the leading edge.
+  const y = Math.round(height / 2 - buttonHeight / 2 + 3);
+  void appWindow?.setTrafficLightPosition(20, y);
 }
 
 wireTitleBar();
