@@ -94,6 +94,48 @@
     0 4px 12px -4px rgb(15 23 42 / 28%);
 }
 
+/* Search control: a 40px circle that expands (leftwards, keeping the group
+   anchored to the trailing edge) into a search field on click. The icon stays
+   centred while closed; opening slides the input in beside it. */
+#titlebar-search {
+  justify-content: center;
+  gap: 0.5rem;
+  transition:
+    width 0.28s ease,
+    padding-left 0.28s ease,
+    color 0.15s ease,
+    background-color 0.15s ease;
+}
+#titlebar-search.expanded {
+  justify-content: flex-start;
+  width: 14rem;
+  padding-left: 0.625rem;
+  cursor: text;
+}
+#titlebar-search input {
+  width: 0;
+  min-width: 0;
+  flex: 0 0 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-ink);
+  caret-color: var(--color-ink);
+  font-size: 0.8125rem;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+#titlebar-search.expanded input {
+  flex: 1 1 auto;
+  width: auto;
+  opacity: 1;
+}
+#titlebar-search input:focus {
+  outline: none;
+}
+#titlebar-search input::placeholder {
+  color: var(--color-dim);
+}
+
 /*
  * Dark theme. The page's utilities read the palette through CSS variables,
  * so flipping the variables under `.dark` restyles everything at once; the

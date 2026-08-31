@@ -87,6 +87,42 @@ function wireTitleBar(): void {
 }
 
 wireTitleBar()
+wireTitleBarSearch()
+
+/**
+ * Expand/collapse the title-bar search. Clicking the (closed) circle slides it
+ * open into a search field and focuses it; the field collapses again when it
+ * loses focus or Escape is pressed. Stops pointer-down from bubbling so the
+ * header's drag-to-move doesn't fight the click.
+ */
+function wireTitleBarSearch(): void {
+  const search = document.querySelector<HTMLElement>('#titlebar-search')
+  const field = document.querySelector<HTMLInputElement>('#titlebar-search-field')
+  if (!search || !field) return
+
+  search.addEventListener('pointerdown', (event) => event.stopPropagation())
+
+  const collapse = () => {
+    search.classList.remove('expanded')
+    search.setAttribute('aria-expanded', 'false')
+  }
+
+  search.addEventListener('click', () => {
+    if (search.classList.contains('expanded')) return
+    search.classList.add('expanded')
+    search.setAttribute('aria-expanded', 'true')
+    field.focus()
+  })
+
+  field.addEventListener('focusout', collapse)
+  field.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') {
+      field.value = ''
+      collapse()
+      field.blur()
+    }
+  })
+}
 
 /**
  * Collapse/enlarge the left sidebar and keep its toggle in sync.
