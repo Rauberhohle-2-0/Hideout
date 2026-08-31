@@ -130,11 +130,14 @@ if (sidebar) {
   );
   for (const button of barButtons) {
     // The collapsed-state copy now lives inside the title-bar pill, which is
-    // centred as one group; only the in-sidebar buttons need the per-button
-    // push to line up with the traffic lights.
+    // pushed as one group instead; only the in-sidebar buttons need the
+    // per-button push to line up with the traffic lights.
     if (titleBarControls?.contains(button)) continue;
     button.style.transform = `translateY(${TITLEBAR_CONTROLS_PUSH}px)`;
   }
+  // The whole pill sits on the same row as the window control buttons, so it
+  // uses the same TITLEBAR_CONTROLS_PUSH as the in-sidebar buttons.
+  if (titleBarControls) titleBarControls.style.transform = `translateY(${TITLEBAR_CONTROLS_PUSH}px)`;
 }
 
 /**
