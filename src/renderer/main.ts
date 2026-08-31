@@ -64,19 +64,39 @@ function wireTitleBar(): void {
 
 wireTitleBar();
 
-/** Collapse and enlarge the left sidebar from its title-bar toggle. */
-function wireSidebarToggle(): void {
-  const sidebar = document.querySelector<HTMLElement>("#sidebar");
-  const toggle = document.querySelector<HTMLButtonElement>("#sidebar-toggle");
-  if (!sidebar || !toggle) return;
-
-  toggle.addEventListener("click", () => {
-    const collapsed = sidebar.classList.toggle("collapsed");
+/**
+ * Collapse/enlarge the left sidebar and keep every toggle in sync.
+ *
+ * There are two buttons: one in the sidebar's top row (visible while open)
+ * and one in the right-pane title bar (visible only while closed, so it stays
+ * reachable once the sidebar has shrunk away).
+ */
+function setSidebarCollapsed(collapsed: boolean): void {
+  if (!sidebar) return;
+  sidebar.classList.toggle("collapsed", collapsed);
+  for (const toggle of sidebarToggles) {
     toggle.setAttribute("aria-expanded", String(!collapsed));
-  });
+  }
+  if (titleBarToggle) titleBarToggle.hidden = !collapsed;
 }
 
-wireSidebarToggle();
+function wireSidebarToggle(): void {
+  if (!sidebar) return;
+  for (const toggle of sidebarToggles) {
+    toggle.addEventListener("click", () => {
+      setSidebarCollapsed(!sidebar.classList.contains("collapsed"));
+    });
+  }
+}
+
+// Shared handles used by the toggle and the resize wiring.
+const sidebar = document.querySelector<HTMLElement>("#sidebar");
+const sidebarToggles = Array.from(document.querySelectorAll<HTMLButtonElement>("[data-sidebar-toggle]"));
+const titleBarToggle = document.querySelector<HTMLButtonElement>("#sidebar-toggle");
+
+if (sidebar) {
+  wireSidebarToggle();
+}
 
 /**
  * Resize the sidebar by dragging the handle between it and the content.
@@ -87,16 +107,13 @@ wireSidebarToggle();
  * content pane out entirely.
  */
 function wireSidebarResize(): void {
-  const sidebar = document.querySelector<HTMLElement>("#sidebar");
-  const toggle = document.querySelector<HTMLButtonElement>("#sidebar-toggle");
   const handle = document.querySelector<HTMLElement>("#sidebar-resizer");
   if (!sidebar || !handle) return;
 
   const minWidth = 160;
   handle.addEventListener("pointerdown", (event) => {
     sidebar.classList.add("dragging");
-    sidebar.classList.remove("collapsed"); // a drag resizes it open
-    toggle?.setAttribute("aria-expanded", "true");
+    setSidebarCollapsed(false); // a drag resizes it open
     handle.setPointerCapture(event.pointerId);
     event.preventDefault();
   });

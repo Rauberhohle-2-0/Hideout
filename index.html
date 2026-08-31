@@ -15,7 +15,27 @@
     <aside
       id="sidebar"
       class="h-full shrink-0 overflow-hidden border-r border-line/60 transition-[width] duration-200 ease-out"
-    ></aside>
+    >
+      <!-- Top row of the sidebar; the macOS traffic lights sit in this same
+           band at the leading edge, and the collapse toggle sits to their
+           right, level with them. -->
+      <div
+        class="flex h-[var(--vantail-titlebar-height,36px)] shrink-0 select-none items-center justify-end px-2"
+      >
+        <button
+          data-sidebar-toggle
+          type="button"
+          aria-label="Toggle sidebar"
+          aria-expanded="true"
+          class="grid size-7 place-items-center rounded-md text-dim transition-colors hover:bg-white/10 hover:text-ink"
+        >
+          <svg class="size-4" viewBox="0 0 16 16" aria-hidden="true">
+            <rect x="2" y="2" width="12" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="1.5" />
+            <line x1="7" y1="2" x2="7" y2="14" stroke="currentColor" stroke-width="1.5" />
+          </svg>
+        </button>
+      </div>
+    </aside>
     <!-- Drag handle between the sidebar and the content; resizes the sidebar. -->
     <div
       id="sidebar-resizer"
@@ -31,12 +51,15 @@
         class="flex h-[var(--vantail-titlebar-height,36px)] shrink-0 select-none items-center"
         style="padding-left: 0.5rem; padding-right: 1.25rem"
       >
-        <!-- Sidebar toggle at the far right of the title bar. -->
+        <!-- Collapse toggle shown here in the title bar only while the
+             sidebar is closed; the in-sidebar button leads otherwise. -->
         <button
           id="sidebar-toggle"
+          data-sidebar-toggle
           type="button"
           aria-label="Toggle sidebar"
           aria-expanded="true"
+          hidden
           class="ml-auto grid size-7 place-items-center rounded-md text-dim transition-colors hover:bg-white/10 hover:text-ink"
         >
           <svg class="size-4" viewBox="0 0 16 16" aria-hidden="true">
