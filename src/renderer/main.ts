@@ -9,13 +9,13 @@
  */
 import 'htmx.org'
 import { appWindow, os, titleBarMetrics } from '@vantail/api'
-import { ChevronDown, createIcons, Moon, PanelLeft, Search, Settings, Sun, X } from 'lucide'
+import { ChevronDown, createIcons, Mic, Moon, PanelLeft, Plus, Search, Settings, Sun, Wrench, X } from 'lucide'
 import { DEFAULT_NAME, WHO_SELECTOR } from '../shared/constants.ts'
 
 // Hydrate the Lucide icons declared as `<i data-lucide="…">` in index.html.
 // The runtime swaps each placeholder for its SVG, keeping the element's own
 // class and data-* attributes (e.g. `data-theme-icon`, `hidden`).
-createIcons({ icons: { ChevronDown, Moon, PanelLeft, Search, Settings, Sun, X } })
+createIcons({ icons: { ChevronDown, Mic, Moon, PanelLeft, Plus, Search, Settings, Sun, Wrench, X } })
 
 // How far the macOS traffic lights settle below the bar's vertical centre, so
 // the sidebar's toggle can sit on the very same row. One source of truth for
