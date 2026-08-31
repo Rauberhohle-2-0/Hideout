@@ -7,47 +7,51 @@
  *  2. Ask the Vantail runtime who the OS user is and drop the name into the
  *     hidden `#who` field, then let htmx fire the `/greet` request.
  */
-import "htmx.org";
-import { appWindow, os, titleBarMetrics } from "@vantail/api";
-import { createIcons, Moon, PanelLeft, Search, Sun } from "lucide";
-import { DEFAULT_NAME, WHO_SELECTOR } from "../shared/constants.ts";
+import 'htmx.org'
+import { appWindow, os, titleBarMetrics } from '@vantail/api'
+import { createIcons, Moon, PanelLeft, Search, Sun } from 'lucide'
+import { DEFAULT_NAME, WHO_SELECTOR } from '../shared/constants.ts'
 
 // Hydrate the Lucide icons declared as `<i data-lucide="…">` in index.html.
 // The runtime swaps each placeholder for its SVG, keeping the element's own
 // class and data-* attributes (e.g. `data-theme-icon`, `hidden`).
-createIcons({ icons: { Moon, PanelLeft, Search, Sun } });
+createIcons({ icons: { Moon, PanelLeft, Search, Sun } })
 
 // How far the macOS traffic lights settle below the bar's vertical centre, so
 // the sidebar's toggle can sit on the very same row. One source of truth for
 // both `setTrafficLightPosition` and the button alignment below.
-const TITLEBAR_CONTROLS_PUSH = 6;
+const TITLEBAR_CONTROLS_PUSH = 15
 
 // Trimmed, non-empty, and never used mid-tag - just a friendly name.
 function usernameOf(home: string): string {
-  const cleaned = home.replace(/[\\/]+$/, "").split(/[\\/]/).pop() ?? "";
-  return cleaned.length > 0 ? cleaned : DEFAULT_NAME;
+  const cleaned =
+    home
+      .replace(/[\\/]+$/, '')
+      .split(/[\\/]/)
+      .pop() ?? ''
+  return cleaned.length > 0 ? cleaned : DEFAULT_NAME
 }
 
 async function greetByOsUser(): Promise<void> {
-  const field = document.querySelector<HTMLInputElement>(WHO_SELECTOR);
-  if (!field) return;
+  const field = document.querySelector<HTMLInputElement>(WHO_SELECTOR)
+  if (!field) return
 
-  let name: string = DEFAULT_NAME;
+  let name: string = DEFAULT_NAME
   try {
-    const home = await os.homeDir();
-    name = usernameOf(home);
+    const home = await os.homeDir()
+    name = usernameOf(home)
   } catch {
     // Outside Vantail (e.g. the page opened in a plain browser) there is no
     // runtime to answer; fall back to a friendly default.
-    name = DEFAULT_NAME;
+    name = DEFAULT_NAME
   }
 
-  if (field.value === name) return;
-  field.value = name;
-  field.dispatchEvent(new Event("change", { bubbles: true }));
+  if (field.value === name) return
+  field.value = name
+  field.dispatchEvent(new Event('change', { bubbles: true }))
 }
 
-void greetByOsUser();
+void greetByOsUser()
 
 /**
  * Drive the custom title bar from index.html.
@@ -59,30 +63,30 @@ void greetByOsUser();
  * keep a comfortable margin off the rounded corner - padded, not clamped.
  */
 function wireTitleBar(): void {
-  const bar = document.querySelector<HTMLElement>("[data-drag]");
-  if (!bar) return;
+  const bar = document.querySelector<HTMLElement>('[data-drag]')
+  if (!bar) return
 
-  bar.addEventListener("pointerdown", () => {
-    void appWindow?.startDragging();
-  });
+  bar.addEventListener('pointerdown', () => {
+    void appWindow?.startDragging()
+  })
 
-  const { height = 36, buttonHeight = 14 } = titleBarMetrics() ?? {};
+  const { height = 36, buttonHeight = 14 } = titleBarMetrics() ?? {}
   // Settle the lights a little below centre, and breathe off the leading edge.
-  const y = Math.round(height / 2 - buttonHeight / 2 + TITLEBAR_CONTROLS_PUSH);
-  void appWindow?.setTrafficLightPosition(20, y);
+  const y = Math.round(height / 2 - buttonHeight / 2 + TITLEBAR_CONTROLS_PUSH)
+  void appWindow?.setTrafficLightPosition(20, y)
 
   // Park the right-side controls on the very same row as the traffic lights:
   // the header aligns them to its top (items-start), so pushing the group
   // down by this margin drops its vertical centre exactly onto the lights'.
-  const controls = document.querySelector<HTMLElement>("#titlebar-controls");
+  const controls = document.querySelector<HTMLElement>('#titlebar-controls')
   if (controls) {
-    const lightsCenter = height / 2 + TITLEBAR_CONTROLS_PUSH;
-    const top = Math.max(0, Math.round(lightsCenter - controls.offsetHeight / 2));
-    controls.style.marginTop = `${top}px`;
+    const lightsCenter = height / 2 + TITLEBAR_CONTROLS_PUSH
+    const top = Math.max(0, Math.round(lightsCenter - controls.offsetHeight / 2))
+    controls.style.marginTop = `${top}px`
   }
 }
 
-wireTitleBar();
+wireTitleBar()
 
 /**
  * Collapse/enlarge the left sidebar and keep its toggle in sync.
@@ -91,47 +95,47 @@ wireTitleBar();
  * in both states, so the window controls are always reachable.
  */
 function setSidebarCollapsed(collapsed: boolean, animating: boolean = true): void {
-  if (!sidebar) return;
+  if (!sidebar) return
   if (collapsed) {
     // Hide the toggle the moment collapsing starts, before the width animation
     // squishes it; the width transition then finishes the collapse.
-    sidebar.classList.add("collapsing");
-    sidebar.classList.add("collapsed");
+    sidebar.classList.add('collapsing')
+    sidebar.classList.add('collapsed')
   } else if (animating) {
     // Keep it hidden while the sidebar grows back; a width transitionend
     // (below) reveals it again.
-    sidebar.classList.add("collapsing");
-    sidebar.classList.remove("collapsed");
+    sidebar.classList.add('collapsing')
+    sidebar.classList.remove('collapsed')
   } else {
     // No animation (e.g. a manual resize drag): reveal straight away.
-    sidebar.classList.remove("collapsing");
-    sidebar.classList.remove("collapsed");
+    sidebar.classList.remove('collapsing')
+    sidebar.classList.remove('collapsed')
   }
   for (const toggle of sidebarToggles) {
-    toggle.setAttribute("aria-expanded", String(!collapsed));
+    toggle.setAttribute('aria-expanded', String(!collapsed))
   }
 }
 
 function wireSidebarToggle(): void {
-  if (!sidebar) return;
+  if (!sidebar) return
   for (const toggle of sidebarToggles) {
-    toggle.addEventListener("click", () => {
-      setSidebarCollapsed(!sidebar.classList.contains("collapsed"));
-    });
+    toggle.addEventListener('click', () => {
+      setSidebarCollapsed(!sidebar.classList.contains('collapsed'))
+    })
   }
 }
 
 // Shared handles used by the toggle and the resize wiring.
-const sidebar = document.querySelector<HTMLElement>("#sidebar");
-const sidebarToggles = Array.from(document.querySelectorAll<HTMLButtonElement>("[data-sidebar-toggle]"));
+const sidebar = document.querySelector<HTMLElement>('#sidebar')
+const sidebarToggles = Array.from(document.querySelectorAll<HTMLButtonElement>('[data-sidebar-toggle]'))
 
 if (sidebar) {
-  wireSidebarToggle();
+  wireSidebarToggle()
 
   // Reveal the sidebar's toggle once the collapse/expand width animation ends.
-  sidebar.addEventListener("transitionend", (event) => {
-    if (event.propertyName === "width") sidebar.classList.remove("collapsing");
-  });
+  sidebar.addEventListener('transitionend', (event) => {
+    if (event.propertyName === 'width') sidebar.classList.remove('collapsing')
+  })
 }
 
 /**
@@ -143,30 +147,30 @@ if (sidebar) {
  * content pane out entirely.
  */
 function wireSidebarResize(): void {
-  const handle = document.querySelector<HTMLElement>("#sidebar-resizer");
-  if (!sidebar || !handle) return;
+  const handle = document.querySelector<HTMLElement>('#sidebar-resizer')
+  if (!sidebar || !handle) return
 
-  const minWidth = 160;
-  handle.addEventListener("pointerdown", (event) => {
-    sidebar.classList.add("dragging");
-    setSidebarCollapsed(false, false); // a drag resizes it open, no hiding
-    handle.setPointerCapture(event.pointerId);
-    event.preventDefault();
-  });
+  const minWidth = 160
+  handle.addEventListener('pointerdown', (event) => {
+    sidebar.classList.add('dragging')
+    setSidebarCollapsed(false, false) // a drag resizes it open, no hiding
+    handle.setPointerCapture(event.pointerId)
+    event.preventDefault()
+  })
 
-  handle.addEventListener("pointermove", (event) => {
-    if (!handle.hasPointerCapture(event.pointerId)) return;
-    const maxWidth = Math.max(minWidth, Math.floor(window.innerWidth * 0.5));
-    const width = Math.min(maxWidth, Math.max(minWidth, event.clientX));
-    sidebar.style.width = `${width}px`;
-  });
+  handle.addEventListener('pointermove', (event) => {
+    if (!handle.hasPointerCapture(event.pointerId)) return
+    const maxWidth = Math.max(minWidth, Math.floor(window.innerWidth * 0.5))
+    const width = Math.min(maxWidth, Math.max(minWidth, event.clientX))
+    sidebar.style.width = `${width}px`
+  })
 
-  const endDrag = () => sidebar.classList.remove("dragging");
-  handle.addEventListener("pointerup", endDrag);
-  handle.addEventListener("pointercancel", endDrag);
+  const endDrag = () => sidebar.classList.remove('dragging')
+  handle.addEventListener('pointerup', endDrag)
+  handle.addEventListener('pointercancel', endDrag)
 }
 
-wireSidebarResize();
+wireSidebarResize()
 
 /**
  * Dark/light theme.
@@ -177,54 +181,51 @@ wireSidebarResize();
  * `[data-theme-toggle]` button shows the mode it would switch to (a moon in
  * light, a sun in dark) and keeps every copy of itself in sync.
  */
-const THEME_KEY = "hideout.theme";
+const THEME_KEY = 'hideout.theme'
 
 function themeIsDark(): boolean {
-  return document.documentElement.classList.contains("dark");
+  return document.documentElement.classList.contains('dark')
 }
 
 function applyTheme(dark: boolean): void {
-  document.documentElement.classList.toggle("dark", dark);
-  document.documentElement.style.colorScheme = dark ? "dark" : "light";
+  document.documentElement.classList.toggle('dark', dark)
+  document.documentElement.style.colorScheme = dark ? 'dark' : 'light'
   try {
-    localStorage.setItem(THEME_KEY, dark ? "dark" : "light");
+    localStorage.setItem(THEME_KEY, dark ? 'dark' : 'light')
   } catch {
     // No storage (e.g. a locked-down webview): the theme still applies for
     // this session, it just will not be remembered.
   }
-  const label = dark ? "Switch to light mode" : "Switch to dark mode";
-  for (const button of document.querySelectorAll<HTMLButtonElement>("[data-theme-toggle]")) {
-    button.setAttribute("aria-label", label);
+  const label = dark ? 'Switch to light mode' : 'Switch to dark mode'
+  for (const button of document.querySelectorAll<HTMLButtonElement>('[data-theme-toggle]')) {
+    button.setAttribute('aria-label', label)
   }
-  const activeIcon = dark ? "dark" : "light";
-  for (const icon of document.querySelectorAll("[data-theme-icon]")) {
-    if (icon.getAttribute("data-theme-icon") === activeIcon) {
-      icon.removeAttribute("hidden");
+  const activeIcon = dark ? 'dark' : 'light'
+  for (const icon of document.querySelectorAll('[data-theme-icon]')) {
+    if (icon.getAttribute('data-theme-icon') === activeIcon) {
+      icon.removeAttribute('hidden')
     } else {
-      icon.setAttribute("hidden", "");
+      icon.setAttribute('hidden', '')
     }
   }
 }
 
 function initTheme(): void {
-  let dark: boolean;
+  let dark: boolean
   try {
-    const stored = localStorage.getItem(THEME_KEY);
-    dark =
-      stored === "dark" ||
-      (stored === null && window.matchMedia("(prefers-color-scheme: dark)").matches);
+    const stored = localStorage.getItem(THEME_KEY)
+    dark = stored === 'dark' || (stored === null && window.matchMedia('(prefers-color-scheme: dark)').matches)
   } catch {
-    dark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+    dark = window.matchMedia('(prefers-color-scheme: dark)').matches
   }
-  applyTheme(dark);
+  applyTheme(dark)
 }
 
 function wireThemeToggle(): void {
-  for (const button of document.querySelectorAll<HTMLButtonElement>("[data-theme-toggle]")) {
-    button.addEventListener("click", () => applyTheme(!themeIsDark()));
+  for (const button of document.querySelectorAll<HTMLButtonElement>('[data-theme-toggle]')) {
+    button.addEventListener('click', () => applyTheme(!themeIsDark()))
   }
 }
 
-initTheme();
-wireThemeToggle();
-
+initTheme()
+wireThemeToggle()

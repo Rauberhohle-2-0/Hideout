@@ -12,45 +12,29 @@
          over the title-bar area on the leading side (the traffic lights float
          above it). Empty for now; width is user-resizable from the edge and
          animated on collapse. -->
-    <aside
-      id="sidebar"
-      class="h-full shrink-0 overflow-hidden border-r border-line/60 transition-[width] duration-200 ease-out"
-    >
+    <aside id="sidebar" class="glass-pane h-full shrink-0 overflow-hidden border-r border-line/60 transition-[width] duration-200 ease-out">
       <!-- Empty shell for now. All window controls live in the title-bar
            group on the right (#titlebar-controls), which stays visible in
            both states. -->
     </aside>
     <!-- Drag handle between the sidebar and the content; resizes the sidebar. -->
-    <div
-      id="sidebar-resizer"
-      aria-hidden="true"
-      class="w-1.5 shrink-0 cursor-col-resize select-none bg-transparent transition-colors hover:bg-accent/30 active:bg-accent/50"
-    ></div>
+    <div id="sidebar-resizer" aria-hidden="true" class="w-1.5 shrink-0 cursor-col-resize select-none bg-transparent transition-colors hover:bg-accent/30 active:bg-accent/50"></div>
     <!-- Right pane: the title bar strip over it, then the page content. -->
     <div class="flex min-w-0 flex-1 flex-col">
       <!-- Custom title bar. A drag region (wired in src/renderer/main.ts via
            startDragging) that overlays the content on the right pane only. -->
-      <header
-        data-drag
-        class="flex h-[var(--vantail-titlebar-height,36px)] shrink-0 select-none items-start"
-        style="padding-left: 0.5rem; padding-right: 1.25rem"
-      >
+      <header data-drag class="flex h-[var(--vantail-titlebar-height,36px)] shrink-0 select-none items-start" style="padding-left: 0.5rem; padding-right: 1.25rem">
         <!-- The theme + collapse buttons and the search button live here on
              the right of the title bar in both sidebar states (chrome in
              .titlebar-group, styles.css), so the window controls are always
              reachable from the same place. -->
-        <div
-          id="titlebar-controls"
-          class="ml-auto flex items-center gap-1.5"
-        >
-          <div
-            class="titlebar-group flex h-[34px] items-center rounded-full border border-line/70 bg-card/80 px-1.5 backdrop-blur-md"
-          >
+        <div id="titlebar-controls" class="ml-auto flex items-center gap-1.5">
+          <div class="titlebar-group flex h-[40px] items-center rounded-full border border-line/70 bg-card/80 px-1.5 backdrop-blur-md">
             <button
               data-theme-toggle
               type="button"
               aria-label="Switch to dark mode"
-              class="grid size-8 place-items-center rounded-xl text-dim transition-colors duration-150 hover:bg-black/15 hover:text-ink active:bg-black/20 dark:hover:bg-white/15 dark:hover:text-ink dark:active:bg-white/20"
+              class="grid size-8 place-items-center rounded-full text-dim transition-colors duration-150 hover:bg-black/10 hover:text-ink active:bg-black/15 dark:hover:bg-white/10 dark:hover:text-ink dark:active:bg-white/15"
             >
               <i class="size-5" data-theme-icon="light" data-lucide="moon"></i>
               <i class="size-5" data-theme-icon="dark" data-lucide="sun" hidden></i>
@@ -61,7 +45,7 @@
               type="button"
               aria-label="Toggle sidebar"
               aria-expanded="true"
-              class="grid size-8 place-items-center rounded-xl text-dim transition-colors duration-150 hover:bg-black/15 hover:text-ink active:bg-black/20 dark:hover:bg-white/15 dark:hover:text-ink dark:active:bg-white/20"
+              class="grid size-8 place-items-center rounded-full text-dim transition-colors duration-150 hover:bg-black/10 hover:text-ink active:bg-black/15 dark:hover:bg-white/10 dark:hover:text-ink dark:active:bg-white/15"
             >
               <i class="size-5" data-lucide="panel-left"></i>
             </button>
@@ -70,7 +54,7 @@
             id="titlebar-search"
             type="button"
             aria-label="Search"
-            class="titlebar-group grid size-8 shrink-0 place-items-center rounded-xl border border-line/70 bg-card/80 text-dim transition-colors duration-150 hover:bg-black/15 hover:text-ink active:bg-black/20 dark:hover:bg-white/15 dark:hover:text-ink dark:active:bg-white/20 backdrop-blur-md"
+            class="titlebar-group grid size-10 shrink-0 place-items-center rounded-full border border-line/70 bg-card/80 text-dim transition-colors duration-150 hover:bg-black/10 hover:text-ink active:bg-black/15 dark:hover:bg-white/10 dark:hover:text-ink dark:active:bg-white/15 backdrop-blur-md"
           >
             <i class="size-5" data-lucide="search"></i>
           </button>
@@ -80,7 +64,7 @@
         <section
           id="greeting"
           aria-live="polite"
-          class="w-full max-w-xl rounded-2xl border border-line bg-card p-8 shadow-xl"
+          class="glass-pane w-full max-w-xl rounded-2xl border border-line p-8"
           hx-get="/greet"
           hx-trigger="change from:#who"
           hx-include="#who"

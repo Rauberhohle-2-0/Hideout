@@ -41,12 +41,12 @@
   }
 }
 
-/* Left sidebar: a frosted-glass pane. Translucent so the blurred backdrop
-   shows through; the blur + saturation boost sell the glass; a top-lit
-   sheen and hairline highlights give it the polished edge. On the light
-   theme the sheen is a brighter white and the right seam a faint dark. */
-#sidebar {
-  width: 16rem;
+/* Frosted-glass surface shared by the sidebar and the greeting card.
+   Translucent so the blurred backdrop shows through; the blur + saturation
+   boost sell the glass; a top-lit sheen and hairline highlights give it the
+   polished edge. On the light theme the sheen is a brighter white and the
+   right seam a faint dark. */
+.glass-pane {
   background:
     linear-gradient(180deg, rgb(255 255 255 / 70%) 0%, transparent 35%),
     color-mix(in oklab, var(--color-card) 70%, transparent);
@@ -56,6 +56,11 @@
     6px 0 20px -6px rgb(15 23 42 / 25%);
   -webkit-backdrop-filter: blur(18px) saturate(150%);
   backdrop-filter: blur(18px) saturate(150%);
+}
+
+/* Left sidebar: a frosted-glass pane on the leading edge, full height. */
+#sidebar {
+  width: 16rem;
 }
 
 /* No animation while the user drags the resize handle. */
@@ -112,7 +117,7 @@
     linear-gradient(180deg, #16203a 0%, var(--color-canvas) 50%, #0a1122 100%);
 }
 
-:root.dark #sidebar {
+:root.dark .glass-pane {
   background:
     linear-gradient(180deg, rgb(255 255 255 / 5%) 0%, transparent 30%),
     color-mix(in oklab, var(--color-card) 70%, transparent);
