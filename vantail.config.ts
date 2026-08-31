@@ -16,12 +16,11 @@ export default defineConfig({
     // a pale gap down the side.
     backgroundColor: "#0f172a",
     // Let the page draw its own title bar: the window content reaches the top
-    // edge (titleBarStyle: "hidden") with room reserved for a bar of this
-    // height, and the platform's own buttons are hidden so the renderer can
-    // paint minimize / maximize / close that match the theme.
+    // edge (titleBarStyle: "hidden") with room reserved for a bar about the
+    // height of the system's own. The platform's buttons stay (macOS traffic
+    // lights); the renderer drags the bar and centres them in it.
     titleBarStyle: "hidden",
-    titleBarHeight: 48,
-    titleBarButtons: "hidden",
+    titleBarHeight: 28,
   },
   permissions: {
     // Everything is denied until you ask for it. This app needs nothing native

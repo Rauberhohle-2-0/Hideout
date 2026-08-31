@@ -9,46 +9,15 @@
   </head>
   <body class="flex h-screen flex-col antialiased">
     <!-- Custom title bar. The whole bar is a drag region (wired in
-         src/renderer/main.ts via startDragging); the window controls are
-         painted by us in the trailing corner. -->
+         src/renderer/main.ts via startDragging); the platform's own traffic
+         lights lead the bar, nudged to centre in it by main.ts, and the
+         leading-edge inset is reserved so the title clears them. -->
     <header
       data-drag
-      class="flex h-[var(--vantail-titlebar-height,48px)] shrink-0 select-none items-center justify-between border-b border-line/60 px-4"
+      class="flex h-[var(--vantail-titlebar-height,28px)] shrink-0 select-none items-center border-b border-line/60"
+      style="padding-left: var(--vantail-titlebar-inset-left, 1rem)"
     >
       <span class="pl-2 text-sm font-medium text-dim">Hideout</span>
-      <div id="window-controls" class="flex items-center gap-1">
-        <button
-          type="button"
-          data-action="minimize"
-          aria-label="Minimize"
-          class="grid size-7 place-items-center rounded-md text-dim transition-colors hover:bg-white/10 hover:text-ink"
-        >
-          <svg class="size-3" viewBox="0 0 12 12" aria-hidden="true">
-            <line x1="2" y1="6" x2="10" y2="6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
-          </svg>
-        </button>
-        <button
-          type="button"
-          data-action="maximize"
-          aria-label="Maximize"
-          class="grid size-7 place-items-center rounded-md text-dim transition-colors hover:bg-white/10 hover:text-ink"
-        >
-          <svg class="size-3" viewBox="0 0 12 12" aria-hidden="true">
-            <rect x="2.5" y="2.5" width="7" height="7" rx="1" fill="none" stroke="currentColor" stroke-width="1.5" />
-          </svg>
-        </button>
-        <button
-          type="button"
-          data-action="close"
-          aria-label="Close"
-          class="grid size-7 place-items-center rounded-md text-dim transition-colors hover:bg-red-500/90 hover:text-white"
-        >
-          <svg class="size-3" viewBox="0 0 12 12" aria-hidden="true">
-            <line x1="3" y1="3" x2="9" y2="9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
-            <line x1="9" y1="3" x2="3" y2="9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
-          </svg>
-        </button>
-      </div>
     </header>
     <main class="flex min-h-0 flex-1 items-center justify-center p-6">
       <section

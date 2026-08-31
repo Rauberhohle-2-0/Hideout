@@ -8,7 +8,7 @@
  *     hidden `#who` field, then let htmx fire the `/greet` request.
  */
 import "htmx.org";
-import { appWindow, os, titleBarMetrics } from "@vantail/api";
+import { appWindow, os } from "@vantail/api";
 import { DEFAULT_NAME, WHO_SELECTOR } from "../shared/constants.ts";
 
 // Trimmed, non-empty, and never used mid-tag - just a friendly name.
@@ -43,42 +43,20 @@ void greetByOsUser();
  *
  * `-webkit-app-region: drag` is a Chromium extension and does nothing in
  * WKWebView, so the bar is dragged by telling the runtime to start dragging
- * on pointer-down instead. Buttons are exempt so they stay clickable.
+ * on pointer-down instead. The platform draws and handles the window buttons
+ * (macOS traffic lights); the page reserves room for them on the leading
+ * edge and just centres them in the bar.
  */
 function wireTitleBar(): void {
   const bar = document.querySelector<HTMLElement>("[data-drag]");
-  const controls = document.querySelector<HTMLElement>("#window-controls");
   if (!bar) return;
 
-  bar.addEventListener("pointerdown", (event) => {
-    const target = event.target as HTMLElement;
-    if (target.closest("button")) return; // let the window controls win
+  bar.addEventListener("pointerdown", () => {
     void appWindow?.startDragging();
   });
 
-  if (!controls) return;
-
-  // If the platform still owns a trailing edge (e.g. it kept system buttons),
-  // it reserves an inset and there is nothing for us to draw. Otherwise the
-  // trailing inset is 0 and the runtime wants us to paint our own controls.
-  const { insetRight = 0 } = titleBarMetrics() ?? {};
-  if (insetRight > 0) return;
-
-  for (const button of controls.querySelectorAll<HTMLButtonElement>("button[data-action]")) {
-    button.addEventListener("click", () => {
-      switch (button.dataset.action) {
-        case "minimize":
-          void appWindow?.minimize();
-          break;
-        case "maximize":
-          void appWindow?.toggleMaximize();
-          break;
-        case "close":
-          void appWindow?.close();
-          break;
-      }
-    });
-  }
+  // Align the traffic lights vertically with the middle of the bar.
+  void appWindow?.centerTrafficLights();
 }
 
 wireTitleBar();
