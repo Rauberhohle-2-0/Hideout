@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { createApp } from "../src/server.ts";
+import { createApp } from "../src/main/server.ts";
 
 describe("Hono htmx app", () => {
   const app = createApp();

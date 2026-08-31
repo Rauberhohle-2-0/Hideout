@@ -5,6 +5,10 @@
  * page's htmx requests (`/greet`, `/tip`) are proxied by Vite to the Hono
  * server started here. Keeping the two in one entry point ties their
  * lifetimes together: the window closing ends the run.
+ *
+ * This is the `main` realm of the app (a small Node sidecar). The window's
+ * page lives in `src/renderer`, and values shared between the two live in
+ * `src/shared`.
  */
 import { spawn } from "node:child_process";
 import { join } from "node:path";

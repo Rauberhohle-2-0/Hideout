@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { escape, greeting, tip } from "../src/views.ts";
+import { escape } from "../src/shared/escape.ts";
+import { greeting, tip } from "../src/main/views.ts";
 
 describe("views", () => {
   test("escape neutralises HTML metacharacters", () => {

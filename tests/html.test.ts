@@ -22,7 +22,7 @@ describe("index.html", () => {
   });
 
   test("loads the app module (which bundles htmx)", () => {
-    expect(html).toContain('src="/src/main.ts"');
+    expect(html).toContain('src="/src/renderer/main.ts"');
   });
 
   test("is not a TSX / component renderer", () => {

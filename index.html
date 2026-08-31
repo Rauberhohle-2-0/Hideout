@@ -4,8 +4,8 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Hideout</title>
-    <link rel="stylesheet" href="/src/styles.css" />
-    <script type="module" src="/src/main.ts"></script>
+    <link rel="stylesheet" href="/src/renderer/styles.css" />
+    <script type="module" src="/src/renderer/main.ts"></script>
   </head>
   <body class="h-screen antialiased">
     <main class="flex h-screen items-center justify-center p-6">
@@ -19,8 +19,8 @@
         hx-target="this"
         hx-swap="innerHTML"
       >
-        <!-- The user's name is filled in here by src/main.ts once the runtime
-             has answered, then htmx re-requests /greet with it. -->
+        <!-- The user's name is filled in here by src/renderer/main.ts once the
+             runtime has answered, then htmx re-requests /greet with it. -->
         <input id="who" type="hidden" name="name" value="friend" />
         <div class="flex items-center gap-3 animate-pulse">
           <span class="size-2.5 rounded-full bg-emerald-400" aria-hidden="true"></span>

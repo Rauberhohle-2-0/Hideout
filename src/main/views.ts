@@ -5,19 +5,8 @@
  * each route's answer is the markup it sends. Anything that arrived from the
  * user (a name, a tip query) goes through `escape` first.
  */
-
-const escapes: Record<string, string> = {
-  "&": "&amp;",
-  "<": "&lt;",
-  ">": "&gt;",
-  '"': "&quot;",
-  "'": "&#39;",
-};
-
-/** Escape a value that came from outside the program before putting it in HTML. */
-export function escape(value: string): string {
-  return value.replace(/[&<>"']/g, (char) => escapes[char] ?? char);
-}
+import { escape } from "../shared/escape.ts";
+import { SWAP_TARGET, TIP_ROUTE } from "../shared/constants.ts";
 
 /** The greeting card. `name` is already escaped. */
 export function greeting(name: string): string {
@@ -30,8 +19,8 @@ export function greeting(name: string): string {
     <button
       type="button"
       class="rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-white hover:opacity-90"
-      hx-get="/tip"
-      hx-target="#greeting"
+      hx-get="${TIP_ROUTE}"
+      hx-target="${SWAP_TARGET}"
       hx-swap="innerHTML"
     >Another tip</button>
   </div>
