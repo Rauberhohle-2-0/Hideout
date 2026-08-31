@@ -4,13 +4,24 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "bun run --watch src/index.ts",
+    "dev": "bun run src/index.ts",
     "start": "bun run src/index.ts",
+    "build": "vantail build",
     "typecheck": "tsc --noEmit",
     "test": "bun test tests/"
   },
   "devDependencies": {
+    "@tailwindcss/vite": "^4.3.3",
     "@types/bun": "^1.4.0",
-    "typescript": "^7.0.2"
+    "@vantail/cli": "^0.1.19",
+    "@vantail/vite": "^0.1.19",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^7.0.2",
+    "vite": "^8.2.2"
+  },
+  "dependencies": {
+    "@vantail/api": "^0.1.19",
+    "hono": "^4.13.5",
+    "htmx.org": "^2.0.10"
   }
 }

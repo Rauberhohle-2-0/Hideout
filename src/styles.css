@@ -1,0 +1,29 @@
+@import "tailwindcss";
+/*
+ * The runtime sets these on the document before the first paint:
+ *   --vantail-titlebar-height    how tall the platform's bar would be
+ *   --vantail-titlebar-inset-*   room the window buttons need
+ *
+ * This window keeps the platform's own title bar, so none of them are
+ * required - but the palette is defined here for the whole page.
+ */
+@theme {
+  --color-ink: #e2e8f0;
+  --color-dim: #94a3b8;
+  --color-canvas: #0f172a;
+  --color-card: #1e293b;
+  --color-line: #334155;
+  --color-accent: #7aa2f7;
+}
+
+@layer base {
+  html,
+  body {
+    height: 100%;
+  }
+  body {
+    background: var(--color-canvas);
+    color: var(--color-ink);
+    overflow: hidden;
+  }
+}

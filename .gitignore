@@ -13,3 +13,5 @@ dist/
 # OS / editor
 .DS_Store
 *.log
+# Vantail runtime config
+.vantail/
