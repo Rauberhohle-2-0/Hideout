@@ -33,16 +33,16 @@
             type="button"
             aria-haspopup="listbox"
             aria-expanded="false"
-            class="titlebar-group flex h-[40px] cursor-pointer items-center gap-2 rounded-full border border-line/70 bg-card/80 px-4 text-sm text-dim backdrop-blur-md transition-colors duration-150 hover:bg-black/10 hover:text-ink active:bg-black/15 dark:hover:bg-white/10 dark:hover:text-ink dark:active:bg-white/15"
+            class="titlebar-group relative flex h-[40px] w-44 cursor-pointer items-center justify-center rounded-full border border-line/70 bg-card/80 px-4 text-sm font-medium text-dim backdrop-blur-md transition-colors duration-150 hover:bg-black/10 hover:text-ink active:bg-black/15 dark:hover:bg-white/10 dark:hover:text-ink dark:active:bg-white/15"
           >
             Models
-            <i id="model-selector-chevron" class="size-4 transition-transform duration-150" data-lucide="chevron-down"></i>
+            <i id="model-selector-chevron" class="absolute right-4 size-4 transition-transform duration-150" data-lucide="chevron-down"></i>
           </button>
           <div
             id="model-dropdown"
             role="listbox"
             aria-label="Models"
-            class="glass-pane absolute left-0 top-[calc(100%+0.5rem)] z-50 w-64 rounded-xl border border-line/70 px-12 py-2 shadow-2xl"
+            class="glass-pane absolute left-0 top-[calc(100%+0.5rem)] z-50 w-50 rounded-xl border border-line/70 px-15 py-2 shadow-2xl"
             hidden
           ></div>
         </div>
