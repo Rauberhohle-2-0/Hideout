@@ -4,8 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "bun run src/index.ts",
-    "start": "bun run src/index.ts",
+    "dev": "bun run src/main/index.ts",
+    "start": "bun run src/main/index.ts",
     "build": "vantail build",
     "typecheck": "tsc --noEmit",
     "test": "bun test tests/"

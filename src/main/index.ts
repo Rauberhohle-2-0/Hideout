@@ -15,7 +15,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createApp } from "./server.ts";
 
-const root = fileURLToPath(new URL("..", import.meta.url));
+const root = fileURLToPath(new URL("../..", import.meta.url));
 const honoPort = Number(process.env.HONO_PORT ?? 8787);
 
 const app = createApp();
