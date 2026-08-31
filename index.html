@@ -7,36 +7,58 @@
     <link rel="stylesheet" href="/src/renderer/styles.css" />
     <script type="module" src="/src/renderer/main.ts"></script>
   </head>
-  <body class="flex h-screen flex-col antialiased">
-    <!-- Custom title bar. The whole bar is a drag region (wired in
-         src/renderer/main.ts via startDragging); the platform's own traffic
-         lights sit at the leading edge. No title here - the bar is left to
-         the window controls, padded rather than clamped to the corner. -->
-    <header
-      data-drag
-      class="flex h-[var(--vantail-titlebar-height,36px)] shrink-0 select-none items-center"
-      style="padding-left: var(--vantail-titlebar-inset-left, 1.25rem); padding-right: 1.25rem"
-    ></header>
-    <main class="flex min-h-0 flex-1 items-center justify-center p-6">
-      <section
-        id="greeting"
-        aria-live="polite"
-        class="w-full max-w-xl rounded-2xl border border-line bg-card p-8 shadow-xl"
-        hx-get="/greet"
-        hx-trigger="change from:#who"
-        hx-include="#who"
-        hx-target="this"
-        hx-swap="innerHTML"
+  <body class="flex h-screen antialiased">
+    <!-- Left sidebar shell, full height so it reaches the top edge and sits
+         over the title-bar area on the leading side (the traffic lights float
+         above it). Empty for now; width animated on collapse. -->
+    <aside
+      id="sidebar"
+      class="h-full w-64 shrink-0 overflow-hidden border-r border-line/60 transition-[width] duration-200 ease-out"
+    ></aside>
+    <!-- Right pane: the title bar strip over it, then the page content. -->
+    <div class="flex min-w-0 flex-1 flex-col">
+      <!-- Custom title bar. A drag region (wired in src/renderer/main.ts via
+           startDragging) that overlays the content on the right pane only. -->
+      <header
+        data-drag
+        class="flex h-[var(--vantail-titlebar-height,36px)] shrink-0 select-none items-center"
+        style="padding-left: 0.5rem; padding-right: 1.25rem"
       >
-        <!-- The user's name is filled in here by src/renderer/main.ts once the
-             runtime has answered, then htmx re-requests /greet with it. -->
-        <input id="who" type="hidden" name="name" value="friend" />
-        <div class="flex items-center gap-3 animate-pulse">
-          <span class="size-2.5 rounded-full bg-emerald-400" aria-hidden="true"></span>
-          <p class="text-sm text-dim">Waking up…</p>
-        </div>
-      </section>
-    </main>
+        <!-- Sidebar toggle at the far right of the title bar. -->
+        <button
+          id="sidebar-toggle"
+          type="button"
+          aria-label="Toggle sidebar"
+          aria-expanded="true"
+          class="ml-auto grid size-7 place-items-center rounded-md text-dim transition-colors hover:bg-white/10 hover:text-ink"
+        >
+          <svg class="size-4" viewBox="0 0 16 16" aria-hidden="true">
+            <rect x="2" y="2" width="12" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="1.5" />
+            <line x1="7" y1="2" x2="7" y2="14" stroke="currentColor" stroke-width="1.5" />
+          </svg>
+        </button>
+      </header>
+      <main class="flex min-h-0 flex-1 items-center justify-center p-6">
+        <section
+          id="greeting"
+          aria-live="polite"
+          class="w-full max-w-xl rounded-2xl border border-line bg-card p-8 shadow-xl"
+          hx-get="/greet"
+          hx-trigger="change from:#who"
+          hx-include="#who"
+          hx-target="this"
+          hx-swap="innerHTML"
+        >
+          <!-- The user's name is filled in here by src/renderer/main.ts once
+               the runtime has answered, then htmx re-requests /greet with it. -->
+          <input id="who" type="hidden" name="name" value="friend" />
+          <div class="flex items-center gap-3 animate-pulse">
+            <span class="size-2.5 rounded-full bg-emerald-400" aria-hidden="true"></span>
+            <p class="text-sm text-dim">Waking up…</p>
+          </div>
+        </section>
+      </main>
+    </div>
     <noscript>
       <p>This window needs JavaScript to greet you.</p>
     </noscript>

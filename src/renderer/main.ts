@@ -63,3 +63,17 @@ function wireTitleBar(): void {
 }
 
 wireTitleBar();
+
+/** Collapse and enlarge the left sidebar from its title-bar toggle. */
+function wireSidebarToggle(): void {
+  const sidebar = document.querySelector<HTMLElement>("#sidebar");
+  const toggle = document.querySelector<HTMLButtonElement>("#sidebar-toggle");
+  if (!sidebar || !toggle) return;
+
+  toggle.addEventListener("click", () => {
+    const collapsed = sidebar.classList.toggle("collapsed");
+    toggle.setAttribute("aria-expanded", String(!collapsed));
+  });
+}
+
+wireSidebarToggle();
