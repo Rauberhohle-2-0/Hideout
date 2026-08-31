@@ -110,6 +110,7 @@
   gap: 0.5rem;
   width: 14rem;
   padding-left: 0.625rem;
+  padding-right: 0.375rem;
   cursor: text;
 }
 #titlebar-search input {

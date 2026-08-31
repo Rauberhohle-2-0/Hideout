@@ -58,12 +58,17 @@
             class="titlebar-group flex size-10 shrink-0 cursor-pointer items-center rounded-full border border-line/70 bg-card/80 text-dim transition-colors duration-150 hover:bg-black/10 hover:text-ink active:bg-black/15 dark:hover:bg-white/10 dark:hover:text-ink dark:active:bg-white/15 backdrop-blur-md"
           >
             <i class="size-5 shrink-0" data-lucide="search"></i>
-            <input
-              id="titlebar-search-field"
-              type="search"
-              placeholder="Suchen"
-              aria-label="Suchen"
-            />
+            <input id="titlebar-search-field" type="text" placeholder="Search" aria-label="search" />
+            <button
+              id="titlebar-search-clear"
+              type="button"
+              aria-label="Clear search"
+              tabindex="-1"
+              class="grid size-5 shrink-0 place-items-center rounded-full text-dim transition-colors duration-150 hover:bg-black/10 hover:text-ink active:bg-black/15 dark:hover:bg-white/10 dark:hover:text-ink dark:active:bg-white/15"
+              hidden
+            >
+              <i class="size-3.5" data-lucide="x"></i>
+            </button>
           </div>
         </div>
       </header>

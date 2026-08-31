@@ -9,13 +9,13 @@
  */
 import 'htmx.org'
 import { appWindow, os, titleBarMetrics } from '@vantail/api'
-import { createIcons, Moon, PanelLeft, Search, Sun } from 'lucide'
+import { createIcons, Moon, PanelLeft, Search, Sun, X } from 'lucide'
 import { DEFAULT_NAME, WHO_SELECTOR } from '../shared/constants.ts'
 
 // Hydrate the Lucide icons declared as `<i data-lucide="…">` in index.html.
 // The runtime swaps each placeholder for its SVG, keeping the element's own
 // class and data-* attributes (e.g. `data-theme-icon`, `hidden`).
-createIcons({ icons: { Moon, PanelLeft, Search, Sun } })
+createIcons({ icons: { Moon, PanelLeft, Search, Sun, X } })
 
 // How far the macOS traffic lights settle below the bar's vertical centre, so
 // the sidebar's toggle can sit on the very same row. One source of truth for
@@ -98,13 +98,19 @@ wireTitleBarSearch()
 function wireTitleBarSearch(): void {
   const search = document.querySelector<HTMLElement>('#titlebar-search')
   const field = document.querySelector<HTMLInputElement>('#titlebar-search-field')
-  if (!search || !field) return
+  const clear = document.querySelector<HTMLButtonElement>('#titlebar-search-clear')
+  if (!search || !field || !clear) return
 
   search.addEventListener('pointerdown', (event) => event.stopPropagation())
+  clear.addEventListener('pointerdown', (event) => event.stopPropagation())
 
+  const updateClear = () => {
+    clear.hidden = field.value.length === 0
+  }
   const collapse = () => {
     search.classList.remove('expanded')
     search.setAttribute('aria-expanded', 'false')
+    clear.hidden = true
   }
 
   search.addEventListener('click', () => {
@@ -114,7 +120,18 @@ function wireTitleBarSearch(): void {
     field.focus()
   })
 
-  field.addEventListener('focusout', collapse)
+  field.addEventListener('input', updateClear)
+  clear.addEventListener('click', () => {
+    field.value = ''
+    updateClear()
+    field.focus()
+  })
+  field.addEventListener('focusout', (event) => {
+    // Keep the field open when focus moves to the clear button inside the
+    // control; only collapse when focus leaves the search entirely.
+    if (event.relatedTarget && search.contains(event.relatedTarget as Node)) return
+    collapse()
+  })
   field.addEventListener('keydown', (event) => {
     if (event.key === 'Escape') {
       field.value = ''
