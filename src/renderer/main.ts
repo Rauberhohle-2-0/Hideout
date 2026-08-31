@@ -77,3 +77,41 @@ function wireSidebarToggle(): void {
 }
 
 wireSidebarToggle();
+
+/**
+ * Resize the sidebar by dragging the handle between it and the content.
+ *
+ * The handle captures the pointer for the whole drag and sets the sidebar
+ * width from the cursor's X (the sidebar starts at the window's left edge).
+ * Width is clamped so it cannot get too narrow to hold content or push the
+ * content pane out entirely.
+ */
+function wireSidebarResize(): void {
+  const sidebar = document.querySelector<HTMLElement>("#sidebar");
+  const toggle = document.querySelector<HTMLButtonElement>("#sidebar-toggle");
+  const handle = document.querySelector<HTMLElement>("#sidebar-resizer");
+  if (!sidebar || !handle) return;
+
+  const minWidth = 160;
+  handle.addEventListener("pointerdown", (event) => {
+    sidebar.classList.add("dragging");
+    sidebar.classList.remove("collapsed"); // a drag resizes it open
+    toggle?.setAttribute("aria-expanded", "true");
+    handle.setPointerCapture(event.pointerId);
+    event.preventDefault();
+  });
+
+  handle.addEventListener("pointermove", (event) => {
+    if (!handle.hasPointerCapture(event.pointerId)) return;
+    const maxWidth = Math.max(minWidth, Math.floor(window.innerWidth * 0.5));
+    const width = Math.min(maxWidth, Math.max(minWidth, event.clientX));
+    sidebar.style.width = `${width}px`;
+  });
+
+  const endDrag = () => sidebar.classList.remove("dragging");
+  handle.addEventListener("pointerup", endDrag);
+  handle.addEventListener("pointercancel", endDrag);
+}
+
+wireSidebarResize();
+

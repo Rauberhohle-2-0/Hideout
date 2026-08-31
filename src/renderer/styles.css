@@ -29,8 +29,24 @@
   }
 }
 
+/* Left sidebar width and states (driven from src/renderer/main.ts). */
+#sidebar {
+  width: 16rem;
+}
+
+/* No animation while the user drags the resize handle. */
+#sidebar.dragging {
+  transition: none;
+}
+
 /* Collapsed state for the left sidebar (toggled from src/renderer/main.ts). */
 #sidebar.collapsed {
-  width: 0;
+  width: 0 !important;
   border-right-width: 0;
+}
+
+/* Hide the resize handle once the sidebar has no width to offer. */
+#sidebar.collapsed + #sidebar-resizer {
+  opacity: 0;
+  pointer-events: none;
 }

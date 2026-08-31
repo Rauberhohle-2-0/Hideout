@@ -10,11 +10,18 @@
   <body class="flex h-screen antialiased">
     <!-- Left sidebar shell, full height so it reaches the top edge and sits
          over the title-bar area on the leading side (the traffic lights float
-         above it). Empty for now; width animated on collapse. -->
+         above it). Empty for now; width is user-resizable from the edge and
+         animated on collapse. -->
     <aside
       id="sidebar"
-      class="h-full w-64 shrink-0 overflow-hidden border-r border-line/60 transition-[width] duration-200 ease-out"
+      class="h-full shrink-0 overflow-hidden border-r border-line/60 transition-[width] duration-200 ease-out"
     ></aside>
+    <!-- Drag handle between the sidebar and the content; resizes the sidebar. -->
+    <div
+      id="sidebar-resizer"
+      aria-hidden="true"
+      class="w-1.5 shrink-0 cursor-col-resize select-none bg-transparent transition-colors hover:bg-accent/30 active:bg-accent/50"
+    ></div>
     <!-- Right pane: the title bar strip over it, then the page content. -->
     <div class="flex min-w-0 flex-1 flex-col">
       <!-- Custom title bar. A drag region (wired in src/renderer/main.ts via
