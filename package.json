@@ -22,6 +22,7 @@
   "dependencies": {
     "@vantail/api": "^0.1.19",
     "hono": "^4.13.5",
-    "htmx.org": "^2.0.10"
+    "htmx.org": "^2.0.10",
+    "lucide": "^1.38.0"
   }
 }

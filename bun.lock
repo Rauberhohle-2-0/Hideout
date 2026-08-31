@@ -8,6 +8,7 @@
         "@vantail/api": "^0.1.19",
         "hono": "^4.13.5",
         "htmx.org": "^2.0.10",
+        "lucide": "^1.38.0",
       },
       "devDependencies": {
         "@tailwindcss/vite": "^4.3.3",
@@ -264,6 +265,8 @@
     "lightningcss-win32-arm64-msvc": ["lightningcss-win32-arm64-msvc@1.33.0", "", { "os": "win32", "cpu": "arm64" }, "sha512-1K+MPfLSFVpphzpdbfkhlWk6wBrTObBzS2T6db10PNOZgR9GoVsAWzwNyuhUYYbTp23j+4RrncfujZ4uAzXvwA=="],
 
     "lightningcss-win32-x64-msvc": ["lightningcss-win32-x64-msvc@1.33.0", "", { "os": "win32", "cpu": "x64" }, "sha512-OlEICDx/Xl0FqSp4bry8zFnCvGpig3Gl4gCquvYwHuqJKEC1+n9NgDniFvqHGmMv1ZkqDJrDqKKSykTDX+ehuA=="],
+
+    "lucide": ["lucide@1.38.0", "", {}, "sha512-ks+qlUDBIewXf4eBTSxQhjrKGrTz8SM0VIuHwgniY72HiBTnOe+UnyzSErIwckCUvjJ1TktDNu6+ZRC/9aoijw=="],
 
     "magic-string": ["magic-string@0.30.21", "", { "dependencies": { "@jridgewell/sourcemap-codec": "^1.5.5" } }, "sha512-vd2F4YUyEXKGcLHoq+TEyCjxueSeHnFxyyjNp80yg0XV4vUhnDer/lvvlqM/arB5bXQN5K2/3oinyCRyx8T2CQ=="],
 

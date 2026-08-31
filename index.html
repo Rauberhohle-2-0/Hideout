@@ -52,13 +52,8 @@
               aria-label="Switch to dark mode"
               class="grid size-7 place-items-center rounded-full text-dim transition-colors duration-150 hover:bg-black/10 hover:text-ink active:bg-black/15 dark:hover:bg-white/10 dark:hover:text-ink dark:active:bg-white/15"
             >
-              <svg class="size-5" data-theme-icon="light" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
-              </svg>
-              <svg class="size-5" data-theme-icon="dark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" hidden>
-                <circle cx="12" cy="12" r="4" />
-                <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
-              </svg>
+              <i class="size-5" data-theme-icon="light" data-lucide="moon"></i>
+              <i class="size-5" data-theme-icon="dark" data-lucide="sun" hidden></i>
             </button>
             <button
               id="sidebar-toggle"
@@ -68,10 +63,7 @@
               aria-expanded="true"
               class="grid size-7 place-items-center rounded-full text-dim transition-colors duration-150 hover:bg-black/10 hover:text-ink active:bg-black/15 dark:hover:bg-white/10 dark:hover:text-ink dark:active:bg-white/15"
             >
-              <svg class="size-5" viewBox="0 0 16 16" aria-hidden="true">
-                <rect x="2" y="2" width="12" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="1.5" />
-                <line x1="7" y1="2" x2="7" y2="14" stroke="currentColor" stroke-width="1.5" />
-              </svg>
+              <i class="size-5" data-lucide="panel-left"></i>
             </button>
           </div>
           <button
@@ -80,10 +72,7 @@
             aria-label="Search"
             class="titlebar-group grid size-[30px] shrink-0 place-items-center rounded-full border border-line/70 bg-card/80 text-dim transition-colors duration-150 hover:bg-black/10 hover:text-ink active:bg-black/15 dark:hover:bg-white/10 dark:hover:text-ink dark:active:bg-white/15 backdrop-blur-md"
           >
-            <svg class="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <circle cx="11" cy="11" r="8" />
-              <path d="m21 21-4.3-4.3" />
-            </svg>
+            <i class="size-5" data-lucide="search"></i>
           </button>
         </div>
       </header>
