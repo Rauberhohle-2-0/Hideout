@@ -9,474 +9,27 @@
     calls to the sidecar go through the runtime's HTTP client over the webview
     IPC bridge, not through fetch. `connect-src` is therefore only here for the
     Vite dev server's HMR socket, and is unused in a packaged build.
+
+    Tailwind styles (src/style.css) and htmx (imported in main.ts) are bundled
+    by Vite into `'self'` assets, so `script-src`/`style-src 'self'` hold.
   -->
   <meta
     http-equiv="Content-Security-Policy"
     content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws://localhost:* ws://127.0.0.1:* http://localhost:* http://127.0.0.1:*; base-uri 'none'; form-action 'none';"
   />
-  <style>
-    :root {
-      color-scheme: light dark;
-      --bg: #f6f7f9;
-      --card: #ffffff;
-      --border: #e2e5ea;
-      --text: #1c2430;
-      --muted: #6b7280;
-      --accent: #4f46e5;
-      --ok: #16a34a;
-      --ok-bg: #ecfdf3;
-      --err: #dc2626;
-      --err-bg: #fef2f2;
-      --warn: #d97706;
-      --checking: #d6b23a;
-    }
-    @media (prefers-color-scheme: dark) {
-      :root {
-        --bg: #101419;
-        --card: #171c23;
-        --border: #2a313b;
-        --text: #e7ecf2;
-        --muted: #9aa3af;
-        --accent: #818cf8;
-        --ok: #34d399;
-        --ok-bg: #0f2a1f;
-        --err: #f87171;
-        --err-bg: #2b1517;
-        --warn: #fbbf24;
-        --checking: #fde68a;
-      }
-    }
-
-    * { box-sizing: border-box; }
-
-    /* Native feel: hide the scrollbar entirely while keeping the page (and
-       inner overflow areas) scrollable. On macOS WKWebView overlay scrollbars
-       only appear during a scroll anyway; this removes them on every platform
-       without touching scroll behavior — wheel, trackpad, keyboard and
-       scrollIntoView all keep working. */
-    * {
-      scrollbar-width: none;      /* Firefox */
-      -ms-overflow-style: none;   /* legacy Edge/IE */
-    }
-    *::-webkit-scrollbar {
-      display: none;              /* WebKit / WKWebView */
-      width: 0;
-      height: 0;
-    }
-
-    html, body { height: 100%; }
-    body {
-      margin: 0;
-      display: flex;
-      flex-direction: column;
-      overflow: hidden;   /* the page itself never scrolls */
-      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-      background: var(--bg);
-      color: var(--text);
-      -webkit-font-smoothing: antialiased;
-    }
-
-    /* Custom title bar. It is pinned (flex: none) above a content area that
-       scrolls on its own, so the bar and the traffic-light region never move
-       and no content can ever slide up behind them. */
-    .titlebar {
-      flex: 0 0 auto;
-      position: relative;
-      z-index: 10;
-      width: 100%;
-      height: var(--vantail-titlebar-height, 32px);
-      padding-left: var(--vantail-titlebar-inset-left, 0px);
-      padding-right: var(--vantail-titlebar-inset-right, 0px);
-      display: flex;
-      align-items: center;
-      background: var(--bg);
-      border-bottom: 1px solid var(--border);
-      user-select: none;
-      -webkit-user-select: none;
-      cursor: default;
-    }
-    .titlebar-title {
-      font-size: 0.78rem;
-      font-weight: 600;
-      color: var(--muted);
-      letter-spacing: 0.01em;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-
-    /* The content area is its own scroll container, clipped below the bar. */
-    .app {
-      flex: 1 1 auto;
-      min-height: 0;        /* allow it to shrink so overflow scrolls inside */
-      width: 100%;
-      max-width: none;
-      overflow-y: auto;
-      margin: 0;
-      padding: 20px 20px 48px;
-    }
-    /* Keep the centered ~640px reading column now that .app spans the width. */
-    .app > * {
-      width: 100%;
-      max-width: 640px;
-      margin-left: auto;
-      margin-right: auto;
-    }
-
-    header.top {
-      display: flex;
-      align-items: flex-end;
-      justify-content: space-between;
-      gap: 16px;
-      margin-bottom: 8px;
-    }
-    header.top h1 {
-      margin: 0;
-      font-size: 1.6rem;
-      font-weight: 700;
-      letter-spacing: -0.02em;
-    }
-    header.top .subtitle {
-      margin: 4px 0 0;
-      color: var(--muted);
-      font-size: 0.9rem;
-    }
-
-    .toolbar {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      justify-content: flex-end;
-    }
-    .toolbar .last-check {
-      color: var(--muted);
-      font-size: 0.8rem;
-      white-space: nowrap;
-    }
-
-    button.refresh {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      border: none;
-      border-radius: 8px;
-      background: var(--accent);
-      color: #fff;
-      font: inherit;
-      font-size: 0.85rem;
-      font-weight: 600;
-      padding: 7px 14px;
-      cursor: pointer;
-      transition: opacity 0.15s ease, transform 0.05s ease;
-    }
-    button.refresh:hover { opacity: 0.9; }
-    button.refresh:active { transform: scale(0.97); }
-    button.refresh:disabled { opacity: 0.55; cursor: default; }
-    button.refresh .spin {
-      display: inline-block;
-      width: 12px;
-      height: 12px;
-      border: 2px solid rgba(255, 255, 255, 0.4);
-      border-top-color: #fff;
-      border-radius: 50%;
-      animation: spin 0.7s linear infinite;
-    }
-
-    @keyframes spin { to { transform: rotate(360deg); } }
-
-    .providers { display: grid; gap: 16px; }
-
-    .provider-card {
-      background: var(--card);
-      border: 1px solid var(--border);
-      border-radius: 14px;
-      padding: 18px 20px;
-      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
-    }
-
-    .provider-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-      flex-wrap: wrap;
-    }
-    .provider-title { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-    .provider-name { font-weight: 700; font-size: 1.05rem; }
-
-    .provider-kind {
-      font-size: 0.7rem;
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
-      border-radius: 999px;
-      padding: 2px 9px;
-    }
-    .provider-kind-local { color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
-    .provider-kind-cloud { color: var(--warn); background: color-mix(in srgb, var(--warn) 14%, transparent); }
-
-    .provider-url,
-    .provider-default-model,
-    .provider-latency {
-      color: var(--muted);
-      font-size: 0.82rem;
-      margin-top: 4px;
-    }
-
-    .provider-status {
-      display: flex;
-      align-items: center;
-      gap: 9px;
-      margin-top: 14px;
-      font-weight: 600;
-      font-size: 0.95rem;
-    }
-    .status-dot {
-      width: 11px;
-      height: 11px;
-      border-radius: 50%;
-      flex: none;
-    }
-    .status-ok { background: var(--ok); box-shadow: 0 0 0 3px var(--ok-bg); }
-    .status-error { background: var(--err); box-shadow: 0 0 0 3px var(--err-bg); }
-    .status-checking { background: var(--checking); box-shadow: 0 0 0 3px color-mix(in srgb, var(--checking) 30%, transparent); animation: pulse 1s ease-in-out infinite; }
-    .status-unknown { background: var(--muted); }
-    .status-text.status-err { color: var(--err); }
-    .status-text.status-ok-c { color: var(--ok); }
-
-    @keyframes pulse { 50% { opacity: 0.45; } }
-
-    .provider-error {
-      margin-top: 10px;
-      color: var(--err);
-      background: var(--err-bg);
-      border-radius: 8px;
-      padding: 8px 12px;
-      font-size: 0.82rem;
-      word-break: break-word;
-      white-space: pre-wrap;
-    }
-
-    .models-section { margin-top: 16px; border-top: 1px solid var(--border); padding-top: 12px; }
-    .models-title {
-      margin: 0 0 8px;
-      font-size: 0.78rem;
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      color: var(--muted);
-    }
-    .models-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; }
-    .model-item {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-      font-size: 0.88rem;
-      padding: 7px 10px;
-      border: 1px solid var(--border);
-      border-radius: 8px;
-    }
-    .model-name { font-weight: 500; }
-    .model-id { color: var(--muted); font-size: 0.75rem; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-    .models-empty { color: var(--muted); font-size: 0.85rem; }
-    .model-item.tool-item { flex-direction: column; align-items: stretch; gap: 8px; }
-    .tool-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
-    .tool-run { border-top: 1px solid var(--border); padding-top: 8px; }
-    .tool-run summary { cursor: pointer; font-size: 0.78rem; font-weight: 600; color: var(--accent); list-style: none; }
-    .tool-run summary::-webkit-details-marker { display: none; }
-    .tool-arg-label { display: block; font-size: 0.72rem; font-weight: 600; color: var(--muted); margin: 8px 0 4px; }
-    .tool-args {
-      width: 100%;
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 8px 10px;
-      font: inherit;
-      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-      font-size: 0.8rem;
-      background: var(--card);
-      color: var(--text);
-      resize: vertical;
-    }
-    .tool-hint { color: var(--muted); font-size: 0.72rem; margin: 6px 0; word-break: break-word; }
-    .btn-sm { padding: 5px 10px; font-size: 0.74rem; border-radius: 7px; }
-    .tool-result {
-      margin: 8px 0 0;
-      max-height: 220px;
-      overflow: auto;
-      white-space: pre-wrap;
-      word-break: break-word;
-      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-      font-size: 0.78rem;
-      background: color-mix(in srgb, var(--bg) 80%, transparent);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 8px 10px;
-    }
-    .tool-result.tool-result-error { color: var(--err); background: var(--err-bg); border-color: color-mix(in srgb, var(--err) 30%, transparent); }
-
-    footer.note {
-      margin-top: 28px;
-      color: var(--muted);
-      font-size: 0.78rem;
-      text-align: center;
-    }
-
-    .load-error {
-      background: var(--err-bg);
-      color: var(--err);
-      border-radius: 12px;
-      padding: 18px 20px;
-      font-size: 0.9rem;
-      border: 1px solid color-mix(in srgb, var(--err) 30%, transparent);
-      word-break: break-word;
-    }
-
-    .section-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-      margin: 28px 0 14px;
-      flex-wrap: wrap;
-    }
-    .section-title {
-      margin: 0;
-      font-size: 1.1rem;
-      font-weight: 700;
-      letter-spacing: -0.01em;
-    }
-    .section-subtitle {
-      margin: 2px 0 0;
-      color: var(--muted);
-      font-size: 0.82rem;
-    }
-    .mcp-toolbar {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-    .btn {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      background: var(--card);
-      color: var(--text);
-      font: inherit;
-      font-size: 0.82rem;
-      font-weight: 600;
-      padding: 7px 12px;
-      cursor: pointer;
-    }
-    .btn-primary {
-      background: var(--accent);
-      color: #fff;
-      border-color: transparent;
-    }
-    .btn-primary:hover { opacity: 0.9; }
-    .btn:disabled { opacity: 0.55; cursor: default; }
-    .btn .spin {
-      display: inline-block;
-      width: 12px;
-      height: 12px;
-      border: 2px solid rgba(255,255,255,0.4);
-      border-top-color: #fff;
-      border-radius: 50%;
-      animation: spin 0.7s linear infinite;
-    }
-    .btn:not(.btn-primary) .spin { border-color: color-mix(in srgb, var(--muted) 40%, transparent); border-top-color: var(--muted); }
-
-    /* MCP cards reuse provider-card base but allow extra header line */
-    .mcp-card .provider-url { word-break: break-all; }
-    .mcp-disabled { opacity: 0.7; }
-    .transport-badge {
-      font-size: 0.7rem;
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
-      border-radius: 999px;
-      padding: 2px 9px;
-      border: 1px solid var(--border);
-      color: var(--muted);
-      background: var(--card);
-    }
-    .transport-badge-stdio { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 30%, transparent); background: color-mix(in srgb, var(--accent) 10%, transparent); }
-    .transport-badge-http { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 30%, transparent); background: color-mix(in srgb, var(--ok) 10%, transparent); }
-    .transport-badge-sse { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 30%, transparent); background: color-mix(in srgb, var(--warn) 10%, transparent); }
-    .mcp-actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
-    .mcp-actions .btn { font-size: 0.78rem; padding: 6px 10px; }
-    .mcp-empty { color: var(--muted); font-size: 0.85rem; padding: 14px; border: 1px dashed var(--border); border-radius: 12px; text-align: center; background: color-mix(in srgb, var(--card) 80%, transparent); }
-    .mcp-meta { color: var(--muted); font-size: 0.78rem; margin-top: 4px; }
-
-    /* Assistant cards */
-    .assistant-card .provider-url { word-break: break-all; }
-    .assistant-disabled { opacity: 0.7; }
-    .assistant-emoji { font-size: 1.1rem; line-height: 1; }
-    .assistant-instructions { color: var(--text); font-size: 0.82rem; margin-top: 8px; white-space: pre-wrap; word-break: break-word; background: color-mix(in srgb, var(--bg) 80%, transparent); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; max-height: 96px; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; line-clamp: 4; }
-    .assistant-params { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
-    .param-chip { font-size: 0.7rem; font-weight: 600; border-radius: 999px; padding: 2px 8px; border: 1px solid var(--border); background: var(--bg); color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-    .assistant-actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
-    .assistant-actions .btn { font-size: 0.78rem; padding: 6px 10px; }
-    .assistant-empty { color: var(--muted); font-size: 0.85rem; padding: 14px; border: 1px dashed var(--border); border-radius: 12px; text-align: center; background: color-mix(in srgb, var(--card) 80%, transparent); }
-    details.assistant-advanced { border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; background: color-mix(in srgb, var(--bg) 60%, transparent); }
-    details.assistant-advanced summary { cursor: pointer; font-size: 0.82rem; font-weight: 600; color: var(--muted); list-style: none; }
-    details.assistant-advanced summary::-webkit-details-marker { display: none; }
-    details.assistant-advanced[open] summary { margin-bottom: 10px; }
-
-    /* Dialog / form */
-    dialog.mcp-dialog {
-      border: 1px solid var(--border);
-      border-radius: 14px;
-      padding: 0;
-      background: var(--card);
-      color: var(--text);
-      max-width: 560px;
-      width: calc(100% - 32px);
-      box-shadow: 0 16px 40px rgba(0,0,0,0.18);
-    }
-    dialog.mcp-dialog::backdrop { background: rgba(0,0,0,0.35); backdrop-filter: blur(2px); }
-    .dialog-head { padding: 18px 20px 0; display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
-    .dialog-head h2 { margin: 0; font-size: 1.05rem; }
-    .dialog-head p { margin: 4px 0 0; color: var(--muted); font-size: 0.82rem; }
-    .icon-btn { border: none; background: transparent; color: var(--muted); font-size: 1.2rem; cursor: pointer; padding: 4px 6px; border-radius: 8px; }
-    .icon-btn:hover { background: var(--bg); color: var(--text); }
-    .dialog-body { padding: 16px 20px; display: grid; gap: 12px; }
-    .field { display: grid; gap: 6px; }
-    .field label { font-size: 0.82rem; font-weight: 600; }
-    .field input, .field select, .field textarea {
-      width: 100%;
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 8px 10px;
-      font: inherit;
-      font-size: 0.88rem;
-      background: var(--card);
-      color: var(--text);
-    }
-    .field textarea { resize: vertical; min-height: 62px; }
-    .field small { color: var(--muted); font-size: 0.74rem; }
-    .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-    .form-grid .field.span-2 { grid-column: 1 / -1; }
-    @media (max-width: 560px) { .form-grid { grid-template-columns: 1fr; } }
-    .dialog-foot { padding: 0 20px 18px; display: flex; justify-content: flex-end; gap: 10px; }
-    .form-error { background: var(--err-bg); color: var(--err); border-radius: 8px; padding: 8px 12px; font-size: 0.82rem; white-space: pre-wrap; word-break: break-word; }
-    .form-error[hidden] { display: none !important; }
-    .hidden { display: none !important; }
-  </style>
 </head>
 <body>
   <div class="titlebar" id="titlebar">
     <span class="titlebar-title">Hideout</span>
   </div>
+
   <main class="app">
-    <header class="top">
+    <header class="flex items-end justify-between gap-4 mb-2">
       <div>
-        <h1>Hideout</h1>
-        <p class="subtitle">Local AI connection</p>
+        <h1 class="text-[1.6rem] font-bold leading-tight tracking-tight">Hideout</h1>
+        <p class="mt-1 text-[0.9rem] text-muted">Local AI connection</p>
       </div>
-      <div class="toolbar">
+      <div class="flex items-center gap-2.5 justify-end">
         <span id="last-check" class="last-check"></span>
         <button id="refresh-btn" class="refresh" type="button">
           <span id="refresh-icon" class="spin" style="display: none"></span>
@@ -485,15 +38,15 @@
       </div>
     </header>
 
-    <div id="content" class="providers"><!-- provider cards injected here --></div>
+    <div id="content" class="grid gap-4"><!-- provider cards injected here --></div>
 
-    <section class="mcp-section" aria-labelledby="mcp-title">
-      <div class="section-header">
+    <section aria-labelledby="mcp-title">
+      <div class="flex flex-wrap items-center justify-between gap-3 mt-7 mb-3.5">
         <div>
-          <h2 id="mcp-title" class="section-title">MCP Servers</h2>
-          <p class="section-subtitle">Connected tools via Model Context Protocol</p>
+          <h2 id="mcp-title" class="text-[1.1rem] font-bold">MCP Servers</h2>
+          <p class="mt-0.5 text-[0.82rem] text-muted">Connected tools via Model Context Protocol</p>
         </div>
-        <div class="mcp-toolbar">
+        <div class="flex items-center gap-2">
           <span id="mcp-last-check" class="last-check"></span>
           <button id="mcp-refresh-btn" class="btn" type="button">
             <span id="mcp-refresh-icon" class="spin" style="display: none"></span>
@@ -502,16 +55,16 @@
           <button id="mcp-add-btn" class="btn btn-primary" type="button">Add MCP Server</button>
         </div>
       </div>
-      <div id="mcp-content" class="providers"><!-- mcp cards injected here --></div>
+      <div id="mcp-content" class="grid gap-4"><!-- mcp cards injected here --></div>
     </section>
 
-    <section class="assistant-section" aria-labelledby="assistant-title">
-      <div class="section-header">
+    <section aria-labelledby="assistant-title">
+      <div class="flex flex-wrap items-center justify-between gap-3 mt-7 mb-3.5">
         <div>
-          <h2 id="assistant-title" class="section-title">Assistants</h2>
-          <p class="section-subtitle">Custom system prompts &amp; sampling presets</p>
+          <h2 id="assistant-title" class="text-[1.1rem] font-bold">Assistants</h2>
+          <p class="mt-0.5 text-[0.82rem] text-muted">Custom system prompts &amp; sampling presets</p>
         </div>
-        <div class="mcp-toolbar">
+        <div class="flex items-center gap-2">
           <span id="assistant-last-check" class="last-check"></span>
           <button id="assistant-refresh-btn" class="btn" type="button">
             <span id="assistant-refresh-icon" class="spin" style="display: none"></span>
@@ -520,10 +73,10 @@
           <button id="assistant-add-btn" class="btn btn-primary" type="button">Add Assistant</button>
         </div>
       </div>
-      <div id="assistant-content" class="providers"><!-- assistant cards injected here --></div>
+      <div id="assistant-content" class="grid gap-4"><!-- assistant cards injected here --></div>
     </section>
 
-    <footer class="note">
+    <footer class="mt-7 text-center text-[0.78rem] text-muted">
       Connection is checked locally against your AI provider. No data ever leaves your machine for local providers.
     </footer>
   </main>

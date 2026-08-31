@@ -7,6 +7,12 @@
  * rather than a static one at the top of the file.
  */
 
+import "../style.css";
+// htmx is loaded for resident client-side behaviors (show/hide, class tools).
+// The data path stays on the IPC bridge; this import is what bundles it as a
+// `'self'` asset so the strict CSP holds.
+import "htmx.org";
+
 import type { Api } from "../shared/api.ts";
 import { createApiClient } from "./api-client.ts";
 import { startSidecar } from "./bootstrap.ts";

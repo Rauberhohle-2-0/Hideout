@@ -1,0 +1,513 @@
+@import "tailwindcss";
+
+/* ------------------------------------------------------------------ theme --
+ * Tokens reference the app's runtime CSS variables, so light and dark flip
+ * automatically with `prefers-color-scheme` and there is no `dark:` bloat.
+ */
+@theme inline {
+  --color-canvas: var(--bg);
+  --color-card: var(--card);
+  --color-line: var(--border);
+  --color-ink: var(--text);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-ok: var(--ok);
+  --color-okbg: var(--ok-bg);
+  --color-err: var(--err);
+  --color-errbg: var(--err-bg);
+  --color-warn: var(--warn);
+  --color-checking: var(--checking);
+}
+
+:root {
+  color-scheme: light dark;
+  --bg: #f6f7f9;
+  --card: #ffffff;
+  --border: #e2e5ea;
+  --text: #1c2430;
+  --muted: #6b7280;
+  --accent: #4f46e5;
+  --ok: #16a34a;
+  --ok-bg: #ecfdf3;
+  --err: #dc2626;
+  --err-bg: #fef2f2;
+  --warn: #d97706;
+  --checking: #d6b23a;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #101419;
+    --card: #171c23;
+    --border: #2a313b;
+    --text: #e7ecf2;
+    --muted: #9aa3af;
+    --accent: #818cf8;
+    --ok: #34d399;
+    --ok-bg: #0f2a1f;
+    --err: #f87171;
+    --err-bg: #2b1517;
+    --warn: #fbbf24;
+    --checking: #fde68a;
+  }
+}
+
+/* ------------------------------------------------------------------ base -- */
+@layer base {
+  *,
+  ::after,
+  ::before {
+    box-sizing: border-box;
+  }
+
+  /* Native feel: hide scrollbars while keeping everything scrollable. */
+  * {
+    scrollbar-width: none; /* Firefox */
+    -ms-overflow-style: none; /* legacy Edge/IE */
+  }
+  *::-webkit-scrollbar {
+    display: none;
+    width: 0;
+    height: 0;
+  }
+
+  html,
+  body {
+    height: 100%;
+  }
+
+  body {
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden; /* the page itself never scrolls */
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    -webkit-font-smoothing: antialiased;
+    @apply text-ink;
+  }
+}
+
+/* ------------------------------------------------------- titlebar & shell --
+ * The custom title bar and the scroll container that clips below it live
+ * here; the height/insets come from Vantail's runtime CSS variables.
+ */
+.titlebar {
+  flex: 0 0 auto;
+  position: relative;
+  z-index: 10;
+  width: 100%;
+  height: var(--vantail-titlebar-height, 32px);
+  padding-left: var(--vantail-titlebar-inset-left, 0px);
+  padding-right: var(--vantail-titlebar-inset-right, 0px);
+  display: flex;
+  align-items: center;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: default;
+}
+.titlebar-title {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--muted);
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.app {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  overflow-y: auto;
+  margin: 0;
+  padding: 20px 20px 48px;
+}
+.app > * {
+  width: 100%;
+  max-width: 640px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+/* ------------------------------------------------------------ components --
+ * The renderer builds its DOM imperatively in JS, so these component classes
+ * are the JS side's surface. Each is composed from Tailwind utilities so the
+ * styling engine stays Tailwind even where `.className` is toggled at runtime.
+ */
+@layer components {
+  /* Buttons */
+  .btn {
+    @apply inline-flex items-center gap-1.5 rounded-lg border border-line bg-card px-3 py-1.5 text-sm font-semibold cursor-pointer text-ink transition-opacity;
+  }
+  .btn:hover {
+    @apply opacity-90;
+  }
+  .btn:disabled {
+    @apply opacity-55 cursor-default;
+  }
+  .btn-primary {
+    @apply bg-accent text-white border-transparent;
+  }
+  .btn-primary:hover {
+    @apply opacity-90;
+  }
+  .btn-sm {
+    @apply px-2.5 py-1 text-xs rounded-md;
+  }
+  .btn .spin {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    border: 2px solid rgba(255, 255, 255, 0.4);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+  }
+  .btn:not(.btn-primary) .spin {
+    border-color: color-mix(in srgb, var(--muted) 40%, transparent);
+    border-top-color: var(--muted);
+  }
+
+  @keyframes spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  /* Refresh button (top toolbar) */
+  button.refresh {
+    @apply inline-flex items-center gap-1.5 rounded-lg bg-accent px-3.5 py-1.5 text-sm font-semibold text-white cursor-pointer border-none transition;
+  }
+  button.refresh:hover {
+    @apply opacity-90;
+  }
+  button.refresh:active {
+    transform: scale(0.97);
+  }
+  button.refresh:disabled {
+    @apply opacity-55 cursor-default;
+  }
+  button.refresh .spin {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    border: 2px solid rgba(255, 255, 255, 0.4);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+  }
+
+  /* Cards */
+  .provider-card {
+    @apply rounded-xl border border-line bg-card px-5 py-4 shadow-sm;
+  }
+  .provider-header {
+    @apply flex flex-wrap items-center justify-between gap-3;
+  }
+  .provider-title {
+    @apply flex flex-wrap items-center gap-2.5;
+  }
+  .provider-name {
+    @apply font-bold text-lg;
+  }
+  .provider-kind {
+    @apply rounded-full px-2.5 py-0.5 text-xs font-semibold uppercase tracking-wider;
+  }
+  .provider-kind-local {
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 14%, transparent);
+  }
+  .provider-kind-cloud {
+    color: var(--warn);
+    background: color-mix(in srgb, var(--warn) 14%, transparent);
+  }
+  .provider-url,
+  .provider-default-model,
+  .provider-latency {
+    @apply text-muted mt-1 text-[0.82rem];
+  }
+  .provider-default-model {
+    @apply mt-1;
+  }
+  .mcp-card .provider-url {
+    word-break: break-all;
+  }
+  .mcp-disabled,
+  .assistant-disabled {
+    @apply opacity-70;
+  }
+
+  /* Status */
+  .provider-status {
+    @apply mt-3.5 flex items-center gap-2.5 font-semibold text-[0.95rem];
+  }
+  .status-dot {
+    width: 11px;
+    height: 11px;
+    border-radius: 50%;
+    flex: none;
+  }
+  .status-ok {
+    background: var(--ok);
+    box-shadow: 0 0 0 3px var(--ok-bg);
+  }
+  .status-error {
+    background: var(--err);
+    box-shadow: 0 0 0 3px var(--err-bg);
+  }
+  .status-checking {
+    background: var(--checking);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--checking) 30%, transparent);
+    animation: pulse 1s ease-in-out infinite;
+  }
+  .status-unknown {
+    background: var(--muted);
+  }
+  .status-text.status-err {
+    color: var(--err);
+  }
+  .status-text.status-ok-c {
+    color: var(--ok);
+  }
+
+  @keyframes pulse {
+    50% {
+      opacity: 0.45;
+    }
+  }
+
+  .provider-error {
+    @apply mt-2.5 rounded-lg bg-errbg px-3 py-2 text-[0.82rem] break-words whitespace-pre-wrap;
+    color: var(--err);
+  }
+
+  /* Models / tools list */
+  .models-section {
+    @apply border-t border-line mt-4 pt-3;
+  }
+  .models-title {
+    @apply mt-0 mb-2 text-[0.78rem] font-bold uppercase tracking-wider text-muted;
+  }
+  .models-list {
+    @apply mt-0 mb-0 grid list-none gap-1.5 p-0;
+  }
+  .model-item {
+    @apply flex items-center justify-between gap-3 rounded-lg border border-line px-2.5 py-[0.35rem] text-[0.88rem];
+  }
+  .model-name {
+    @apply font-medium;
+  }
+  .model-id {
+    @apply text-muted font-mono text-[0.75rem];
+  }
+  .models-empty {
+    @apply text-muted text-[0.85rem];
+  }
+  .model-item.tool-item {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+  .tool-head {
+    @apply flex flex-wrap items-center justify-between gap-3;
+  }
+  .tool-run {
+    @apply border-t border-line pt-2;
+  }
+  .tool-run summary {
+    @apply cursor-pointer text-[0.78rem] font-semibold text-accent;
+    list-style: none;
+  }
+  .tool-run summary::-webkit-details-marker {
+    display: none;
+  }
+  .tool-arg-label {
+    @apply mt-2 mb-1 block text-[0.72rem] font-semibold text-muted;
+  }
+  .tool-args {
+    @apply w-full rounded-lg border border-line bg-card px-2.5 py-2 font-mono text-[0.8rem] text-ink resize-y;
+  }
+  .tool-hint {
+    @apply my-1.5 text-[0.72rem] text-muted break-words;
+  }
+  .tool-result {
+    @apply mt-2 mb-0 max-h-[220px] overflow-auto whitespace-pre-wrap break-words rounded-lg border border-line px-2.5 py-2 font-mono text-[0.78rem];
+    background: color-mix(in srgb, var(--bg) 80%, transparent);
+  }
+  .tool-result.tool-result-error {
+    color: var(--err);
+    background: var(--err-bg);
+    border-color: color-mix(in srgb, var(--err) 30%, transparent);
+  }
+
+  /* MCP */
+  .mcp-meta {
+    @apply mt-1 text-[0.78rem] text-muted;
+  }
+  .transport-badge {
+    @apply rounded-full px-2.5 py-0.5 text-[0.7rem] font-semibold uppercase tracking-wider border border-line text-muted bg-card;
+  }
+  .transport-badge-stdio {
+    color: var(--accent);
+    border-color: color-mix(in srgb, var(--accent) 30%, transparent);
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
+  }
+  .transport-badge-http {
+    color: var(--ok);
+    border-color: color-mix(in srgb, var(--ok) 30%, transparent);
+    background: color-mix(in srgb, var(--ok) 10%, transparent);
+  }
+  .transport-badge-sse {
+    color: var(--warn);
+    border-color: color-mix(in srgb, var(--warn) 30%, transparent);
+    background: color-mix(in srgb, var(--warn) 10%, transparent);
+  }
+  .mcp-actions {
+    @apply mt-3 flex flex-wrap gap-2;
+  }
+  .mcp-actions .btn {
+    @apply px-2.5 py-1.5 text-[0.78rem];
+  }
+  .mcp-empty {
+    @apply mt-0 text-[0.85rem] text-muted rounded-xl border border-dashed border-line bg-card/80 p-3.5 text-center;
+  }
+
+  /* Assistants */
+  .assistant-card .provider-url {
+    word-break: break-all;
+  }
+  .assistant-emoji {
+    font-size: 1.1rem;
+    line-height: 1;
+  }
+  .assistant-instructions {
+    @apply text-[0.82rem] text-ink mt-2 whitespace-pre-wrap break-words rounded-lg border border-line px-2.5 py-2 max-h-24 overflow-hidden;
+    display: -webkit-box;
+    -webkit-line-clamp: 4;
+    -webkit-box-orient: vertical;
+    line-clamp: 4;
+    background: color-mix(in srgb, var(--bg) 80%, transparent);
+  }
+  .assistant-params {
+    @apply mt-2 flex flex-wrap gap-1.5;
+  }
+  .param-chip {
+    @apply font-mono text-[0.7rem] font-semibold rounded-full border border-line bg-canvas px-2 py-0.5 text-muted;
+  }
+  .assistant-actions {
+    @apply mt-3 flex flex-wrap gap-2;
+  }
+  .assistant-actions .btn {
+    @apply px-2.5 py-1.5 text-[0.78rem];
+  }
+  .assistant-empty {
+    @apply mt-0 text-[0.85rem] text-muted rounded-xl border border-dashed border-line bg-card/80 p-3.5 text-center;
+  }
+  details.assistant-advanced {
+    @apply rounded-lg border border-line px-2.5 py-2;
+    background: color-mix(in srgb, var(--bg) 60%, transparent);
+  }
+  details.assistant-advanced summary {
+    @apply cursor-pointer text-[0.82rem] font-semibold text-muted;
+    list-style: none;
+  }
+  details.assistant-advanced summary::-webkit-details-marker {
+    display: none;
+  }
+  details.assistant-advanced[open] summary {
+    margin-bottom: 10px;
+  }
+
+  /* Dialog / form */
+  dialog.mcp-dialog {
+    @apply max-w-[560px] w-[calc(100%-32px)] rounded-2xl border border-line bg-card text-ink;
+    padding: 0;
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.18);
+  }
+  dialog.mcp-dialog::backdrop {
+    background: rgba(0, 0, 0, 0.35);
+    backdrop-filter: blur(2px);
+  }
+  .dialog-head {
+    @apply flex items-start justify-between gap-3 px-5 pt-[18px] pb-0;
+  }
+  .dialog-head h2 {
+    @apply mt-0 text-[1.05rem];
+  }
+  .dialog-head p {
+    @apply mt-1 mb-0 text-[0.82rem] text-muted;
+  }
+  .icon-btn {
+    @apply rounded-lg border-none bg-transparent px-1.5 py-1 text-xl text-muted cursor-pointer;
+  }
+  .icon-btn:hover {
+    background: var(--bg);
+    color: var(--text);
+  }
+  .dialog-body {
+    @apply grid gap-3 px-5 py-4;
+  }
+  .field {
+    display: grid;
+    gap: 6px;
+  }
+  .field label {
+    @apply text-[0.82rem] font-semibold;
+  }
+  .field input,
+  .field select,
+  .field textarea {
+    @apply w-full rounded-lg border border-line bg-card px-2.5 py-2 text-[0.88rem] text-ink;
+    font: inherit;
+  }
+  .field textarea {
+    resize: vertical;
+    min-height: 62px;
+  }
+  .field small {
+    @apply text-[0.74rem] text-muted;
+  }
+  .form-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+  .form-grid .field.span-2 {
+    grid-column: 1 / -1;
+  }
+  @media (max-width: 560px) {
+    .form-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+  .dialog-foot {
+    @apply flex justify-end gap-2.5 px-5 pb-[18px] pt-0;
+  }
+  .form-error {
+    @apply rounded-lg bg-errbg px-3 py-2 text-[0.82rem] text-err break-words whitespace-pre-wrap;
+  }
+  .form-error[hidden] {
+    display: none !important;
+  }
+  .hidden {
+    display: none !important;
+  }
+
+  /* Empty / load-error */
+  .load-error {
+    @apply rounded-xl border border-line bg-errbg px-5 py-4 text-[0.9rem] text-err break-words;
+    border-color: color-mix(in srgb, var(--err) 30%, transparent);
+  }
+
+  footer.note {
+    @apply mt-7 text-center text-[0.78rem] text-muted;
+  }
+
+  .last-check {
+    @apply text-[0.8rem] text-muted whitespace-nowrap;
+  }
+}
