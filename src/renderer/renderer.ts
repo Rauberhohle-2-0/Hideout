@@ -15,9 +15,11 @@ import type {
   ChatStreamEvent,
   ChatStreamHandlers,
 } from "../shared/api.ts";
-// The runtime's appWindow powers title-bar drag and double-click-to-zoom; the
-// native dialog confirms chat deletion.
-import { appWindow, dialog } from "@vantail/api";
+// The native dialog confirms chat deletion. Title-bar drag and double-click
+// to zoom are handled automatically by the Vantail runtime for a hidden
+// title bar (see docs/api.md "Dragging it") — no manual startDragging /
+// toggleMaximize needed.
+import { dialog } from "@vantail/api";
 
 declare global {
   interface Window {
@@ -603,20 +605,22 @@ function closeAssistantMenu(): void {
   $<HTMLDivElement>("assistant-menu").hidden = true;
 }
 
-// ---- Title bar (drag + double-click to zoom) -------------------------------
-
-function setupTitleBar(): void {
-  const bar = document.getElementById("titlebar");
-  if (!bar) return;
-  bar.addEventListener("pointerdown", (event) => {
-    if ((event.target as Element).closest("button, input, a, select, textarea")) return;
-    if (event.buttons === 1) void appWindow.startDragging();
-  });
-  bar.addEventListener("dblclick", (event) => {
-    if ((event.target as Element).closest("button, input, a, select, textarea")) return;
-    void appWindow.toggleMaximize();
-  });
-}
+// ---- Title bar ------------------------------------------------------------
+// Vantail handles this automatically when `titleBarStyle: "hidden"`:
+// the band where the title bar was (`--vantail-titlebar-height`) drags the
+// window and a double-click there toggles maximize, skipping controls
+// (button/input/a/select/textarea and role=button/tab/menuitem etc.).
+// See docs/api.md "Dragging it" and window.d.ts `startDragging`.
+//
+// The previous implementation called `appWindow.startDragging()` on
+// pointerdown (with preventDefault) and `appWindow.toggleMaximize()` on
+// dblclick, which duplicated the runtime's built-in behavior. A double-click
+// then toggled maximize twice (maximize → immediate unmaximize), which is
+// the "minimizes itself again after maximizing" bug.
+// No manual listeners are needed — the CSS sizing from
+// --vantail-titlebar-height / insets is enough. If you add a second row
+// below the band, mark it with `data-vantail-drag` instead of JS.
+function setupTitleBar(): void {}
 
 // ---- init -----------------------------------------------------------------
 

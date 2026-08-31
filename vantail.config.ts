@@ -28,8 +28,9 @@ export default defineConfig({
     backgroundColor: "#f6f7f9",
     // macOS native look: the window draws no title bar, but the system
     // traffic lights stay. The page runs to the top edge; the titlebar strip
-    // in index.html sizes itself from the --vantail-titlebar-* CSS variables
-    // and drags the window (see renderer.ts setupTitleBar).
+    // in index.html sizes itself from the --vantail-titlebar-* CSS variables.
+    // Dragging and double-click-to-maximize in that band are handled
+    // automatically by the Vantail runtime (no JS needed).
     titleBarStyle: "hidden",
   },
 
