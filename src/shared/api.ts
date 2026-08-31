@@ -84,6 +84,20 @@ export interface AssistantAddRequest {
   enabled?: boolean;
 }
 
+// Chat stream wire types — SSE events emitted by the agent tool-loop in /chat/stream
+export type ChatStreamEvent =
+  | { type: "delta"; delta: string; model: string }
+  | { type: "tool_start"; tool: string; args: Record<string, unknown> }
+  | { type: "tool_end"; tool: string; ok: boolean; result: string }
+  | { type: "done"; model: string; finishReason: string }
+  | { type: "error"; error: string; code?: string };
+
+/** Callbacks for a streaming chat; onEnd fires exactly once, with an error string when the transport failed. */
+export interface ChatStreamHandlers {
+  onEvent(event: ChatStreamEvent): void;
+  onEnd(error?: string): void;
+}
+
 // MCP wire types — never include raw secrets (values are "***" if present)
 export type McpTransportType = "stdio" | "http" | "sse";
 
@@ -140,6 +154,8 @@ export interface Api {
   aiHealth(providerId: string): Promise<{ ok: boolean; latencyMs?: number; version?: string; error?: string }>;
   aiListModels(providerId: string): Promise<Array<{ id: string; name: string; ownedBy?: string }>>;
   aiChat(req: AiChatIpcRequest): Promise<AiChatIpcResponse>;
+  /** Streaming chat over the agent tool-loop; resolves when the stream ends. */
+  aiChatStream(req: AiChatIpcRequest, handlers: ChatStreamHandlers): Promise<void>;
   // MCP — transport-agnostic, secrets never cross to renderer
   mcpListServers(): Promise<McpServerSafe[]>;
   mcpGetServer(id: string): Promise<McpServerSafe>;

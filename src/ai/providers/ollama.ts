@@ -22,6 +22,8 @@ import type {
   AiModel,
   AiProviderCapabilities,
   AiProviderConfig,
+  AiTool,
+  AiToolCall,
 } from "../types.ts";
 import { AiError, AiUpstreamError } from "../errors.ts";
 import { Logger } from "../../logger.ts";
@@ -46,10 +48,31 @@ interface OllamaTagsResponse {
   }>;
 }
 
+interface OllamaToolDef {
+  type: "function";
+  function: {
+    name: string;
+    description?: string;
+    parameters?: Record<string, unknown>;
+  };
+}
+
+interface OllamaChatMessage {
+  role: string;
+  content: string;
+  name?: string;
+  tool_calls?: Array<{
+    function?: { name?: string; arguments?: unknown };
+    name?: string;
+    arguments?: unknown;
+  }>;
+}
+
 interface OllamaChatRequest {
   model: string;
-  messages: Array<{ role: string; content: string }>;
+  messages: OllamaChatMessage[];
   stream: boolean;
+  tools?: OllamaToolDef[];
   options?: Record<string, unknown>;
   keep_alive?: string;
 }
@@ -57,7 +80,7 @@ interface OllamaChatRequest {
 interface OllamaChatResponse {
   model: string;
   created_at: string;
-  message?: { role: string; content: string };
+  message?: OllamaChatMessage;
   done: boolean;
   done_reason?: string;
   eval_count?: number;
@@ -82,7 +105,7 @@ export class OllamaProvider extends BaseProvider {
   }
 
   getCapabilities(): AiProviderCapabilities {
-    return { chat: true, streaming: true, embeddings: false, tools: false };
+    return { chat: true, streaming: true, embeddings: false, tools: true };
   }
 
   validateConfig(config: AiProviderConfig): { valid: boolean; errors: string[] } {
@@ -217,6 +240,58 @@ export class OllamaProvider extends BaseProvider {
     }));
   }
 
+  private toOllamaTools(tools?: AiTool[]): OllamaToolDef[] | undefined {
+    if (!tools || tools.length === 0) return undefined;
+    return tools.map((t) => ({
+      type: "function",
+      function: {
+        name: t.name,
+        ...(t.description !== undefined ? { description: t.description } : {}),
+        ...(t.parameters !== undefined ? { parameters: t.parameters } : {}),
+      },
+    }));
+  }
+
+  /** Map our messages to Ollama's wire shape, carrying tool_calls/name through. */
+  private toOllamaMessages(messages: AiMessage[]): OllamaChatMessage[] {
+    return messages.map((m) => {
+      const base: OllamaChatMessage = { role: m.role, content: m.content };
+      if (m.name) base.name = m.name;
+      if (m.toolCalls && m.toolCalls.length > 0) {
+        base.tool_calls = m.toolCalls.map((tc) => ({
+          function: {
+            name: tc.name,
+            arguments: tc.arguments,
+          },
+        }));
+      }
+      return base;
+    });
+  }
+
+  private parseToolCalls(message?: OllamaChatMessage): AiToolCall[] {
+    if (!message?.tool_calls || message.tool_calls.length === 0) return [];
+    const out: AiToolCall[] = [];
+    for (const tc of message.tool_calls) {
+      const fn = tc.function ?? tc;
+      const name = fn?.name;
+      if (!name) continue;
+      let args: Record<string, unknown> = {};
+      const rawArgs = fn?.arguments;
+      if (typeof rawArgs === "object" && rawArgs !== null) args = rawArgs as Record<string, unknown>;
+      else if (typeof rawArgs === "string" && rawArgs) {
+        try {
+          const parsed = JSON.parse(rawArgs) as unknown;
+          if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) args = parsed as Record<string, unknown>;
+        } catch {
+          // ignore malformed args
+        }
+      }
+      out.push({ name, arguments: args });
+    }
+    return out;
+  }
+
   async chat(messages: AiMessage[], options?: AiChatOptions): Promise<AiChatResponse> {
     const errs = this.validateMessages(messages);
     if (errs.length) throw new AiError(errs.join("; "), "VALIDATION_ERROR");
@@ -224,8 +299,9 @@ export class OllamaProvider extends BaseProvider {
     const model = options?.model ?? this.config.defaultModel ?? DEFAULT_MODEL;
     const body: OllamaChatRequest = {
       model,
-      messages: messages.map((m) => ({ role: m.role, content: m.content })),
+      messages: this.toOllamaMessages(messages),
       stream: false,
+      ...(this.toOllamaTools(options?.tools) ? { tools: this.toOllamaTools(options?.tools) } : {}),
     };
     const ollamaOptions: Record<string, unknown> = {};
     if (options?.temperature !== undefined) ollamaOptions.temperature = options.temperature;
@@ -248,12 +324,21 @@ export class OllamaProvider extends BaseProvider {
     });
 
     const content = res.message?.content ?? "";
+    const toolCalls = this.parseToolCalls(res.message);
     return {
       id: `ollama-${Date.now()}`,
       model: res.model || model,
       created: Date.parse(res.created_at) || Date.now(),
       content,
-      finishReason: res.done_reason === "length" ? "length" : res.done ? "stop" : "unknown",
+      finishReason:
+        res.done_reason === "length"
+          ? "length"
+          : toolCalls.length > 0
+            ? "tool_calls"
+            : res.done
+              ? "stop"
+              : "unknown",
+      ...(toolCalls.length > 0 ? { toolCalls } : {}),
       usage: {
         promptTokens: res.prompt_eval_count,
         completionTokens: res.eval_count,
@@ -275,8 +360,9 @@ export class OllamaProvider extends BaseProvider {
     const model = options?.model ?? this.config.defaultModel ?? DEFAULT_MODEL;
     const body: OllamaChatRequest = {
       model,
-      messages: messages.map((m) => ({ role: m.role, content: m.content })),
+      messages: this.toOllamaMessages(messages),
       stream: true,
+      ...(this.toOllamaTools(options?.tools) ? { tools: this.toOllamaTools(options?.tools) } : {}),
     };
     const ollamaOptions: Record<string, unknown> = {};
     if (options?.temperature !== undefined) ollamaOptions.temperature = options.temperature;
@@ -337,12 +423,20 @@ export class OllamaProvider extends BaseProvider {
           const delta = parsed.message?.content ?? "";
           const isDone = parsed.done === true;
           if (delta || isDone) {
+            const toolCalls = isDone ? this.parseToolCalls(parsed.message) : [];
             yield {
               id,
               model: parsed.model || model,
               delta,
               done: isDone,
-              finishReason: isDone ? (parsed.done_reason === "length" ? "length" : "stop") : undefined,
+              finishReason: isDone
+                ? toolCalls.length > 0
+                  ? "tool_calls"
+                  : parsed.done_reason === "length"
+                    ? "length"
+                    : "stop"
+                : undefined,
+              ...(toolCalls.length > 0 ? { toolCalls } : {}),
             };
           }
           if (isDone) {
@@ -357,12 +451,20 @@ export class OllamaProvider extends BaseProvider {
         try {
           const parsed = JSON.parse(buf.trim()) as OllamaChatResponse;
           const delta = parsed.message?.content ?? "";
+          const toolCalls = parsed.done === true ? this.parseToolCalls(parsed.message) : [];
           yield {
             id,
             model: parsed.model || model,
             delta,
             done: parsed.done === true,
-            finishReason: parsed.done ? (parsed.done_reason === "length" ? "length" : "stop") : undefined,
+            finishReason: parsed.done
+              ? toolCalls.length > 0
+                ? "tool_calls"
+                : parsed.done_reason === "length"
+                  ? "length"
+                  : "stop"
+              : undefined,
+            ...(toolCalls.length > 0 ? { toolCalls } : {}),
           };
         } catch {
           // ignore

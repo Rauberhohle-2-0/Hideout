@@ -5,6 +5,7 @@ import { Logger } from "../logger.ts";
 import { getDefaultAssistantRegistry } from "../assistants/registry.ts";
 import { createRateLimiter } from "./rate-limit.ts";
 import { parseBody } from "./validation.ts";
+import { agentStream } from "./agent.ts";
 import { chatBodyValidator, type ValidChatBody } from "./chat-validation.ts";
 import type { AiMessage } from "../ai/types.ts";
 
@@ -233,7 +234,8 @@ aiRoutes.post("/chat/stream", async (c) => {
   const provider = registry.get(providerId);
   if (!provider) return c.json({ error: `Provider not found: ${providerId}` }, 404);
 
-  // Stream as SSE
+  // Stream as SSE over the agent tool-loop: tokens arrive live, and any MCP
+  // tool the model asks for is executed and its result fed back in-line.
   const stream = new ReadableStream({
     async start(controller) {
       const encoder = new TextEncoder();
@@ -241,22 +243,8 @@ aiRoutes.post("/chat/stream", async (c) => {
         controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
       };
       try {
-        for await (const chunk of provider.chatStream(ctx.messages, {
-          model: ctx.model,
-          temperature: ctx.temperature,
-          maxTokens: ctx.maxTokens,
-          topP: ctx.topP,
-          topK: ctx.topK,
-          minP: ctx.minP,
-          repeatPenalty: ctx.repeatPenalty,
-          frequencyPenalty: ctx.frequencyPenalty,
-          presencePenalty: ctx.presencePenalty,
-          seed: ctx.seed,
-          stop: ctx.stop,
-          timeoutMs: 120_000,
-        })) {
-          send(chunk.done ? "done" : "delta", chunk);
-          if (chunk.done) break;
+        for await (const evt of agentStream(provider, ctx)) {
+          send(evt.type, evt);
         }
         send("end", { done: true });
         controller.close();

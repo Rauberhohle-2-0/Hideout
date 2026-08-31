@@ -1,14 +1,22 @@
+/**
+ * Chat interface.
+ *
+ * A single-threaded chat view: pick a model (and optionally an assistant) from
+ * the right-hand panel, type a message, and watch the answer stream in. Chat
+ * requests go through `window.api.aiChatStream`, which drives the sidecar's
+ * agent tool-loop — so MCP tools (e.g. Exa by default) can answer the model's
+ * function calls inline.
+ */
+
 import type {
-  Api,
   AiProviderInfo,
-  AssistantAddRequest,
-  AssistantParametersWire,
+  Api,
   AssistantSafe,
-  McpAddServerRequest,
-  McpServerSafe,
+  ChatStreamEvent,
+  ChatStreamHandlers,
 } from "../shared/api.ts";
-// Alias avoids the local `dialog` HTML element inside the dialog setup functions.
-import { appWindow, dialog as vantailDialog } from "@vantail/api";
+// The runtime's appWindow powers title-bar drag and double-click-to-zoom.
+import { appWindow } from "@vantail/api";
 
 declare global {
   interface Window {
@@ -16,88 +24,26 @@ declare global {
   }
 }
 
-const REFRESH_INTERVAL_MS = 15_000;
-const TITLEBAR_ID = "titlebar";
-const CONTENT_ID = "content";
-const REFRESH_BTN_ID = "refresh-btn";
-const REFRESH_ICON_ID = "refresh-icon";
-const LAST_CHECK_ID = "last-check";
+const PROVIDER_ID = "ollama";
 
-const MCP_CONTENT_ID = "mcp-content";
-const MCP_REFRESH_BTN_ID = "mcp-refresh-btn";
-const MCP_REFRESH_ICON_ID = "mcp-refresh-icon";
-const MCP_LAST_CHECK_ID = "mcp-last-check";
-const MCP_ADD_BTN_ID = "mcp-add-btn";
-const MCP_DIALOG_ID = "mcp-dialog";
-const MCP_DIALOG_CLOSE_ID = "mcp-dialog-close";
-const MCP_CANCEL_BTN_ID = "mcp-cancel-btn";
-const MCP_FORM_ID = "mcp-form";
-const MCP_FORM_ERROR_ID = "mcp-form-error";
+const $ = <T extends HTMLElement>(id: string): T => {
+  const el = document.getElementById(id);
+  if (!el) throw new Error(`Missing element #${id}`);
+  return el as T;
+};
 
-const ASSISTANT_CONTENT_ID = "assistant-content";
-const ASSISTANT_REFRESH_BTN_ID = "assistant-refresh-btn";
-const ASSISTANT_REFRESH_ICON_ID = "assistant-refresh-icon";
-const ASSISTANT_LAST_CHECK_ID = "assistant-last-check";
-const ASSISTANT_ADD_BTN_ID = "assistant-add-btn";
-const ASSISTANT_DIALOG_ID = "assistant-dialog";
-const ASSISTANT_DIALOG_CLOSE_ID = "assistant-dialog-close";
-const ASSISTANT_CANCEL_BTN_ID = "assistant-cancel-btn";
-const ASSISTANT_FORM_ID = "assistant-form";
-const ASSISTANT_FORM_ERROR_ID = "assistant-form-error";
-
-// Edit mode state — null = adding, string = editing that id
-let editingMcpId: string | null = null;
-let openMcpEdit: ((server: McpServerSafe) => void) | null = null;
-let editingAssistantId: string | null = null;
-let openAssistantEdit: ((assistant: AssistantSafe) => void) | null = null;
-
-function envToText(env?: Record<string, string>): string {
-  if (!env || Object.keys(env).length === 0) return "";
-  return Object.entries(env)
-    .map(([k, v]) => `${k}=${v}`)
-    .join("\n");
+interface ModelOption {
+  id: string;
+  name: string;
 }
 
-function headersToText(headers?: Record<string, string>): string {
-  if (!headers || Object.keys(headers).length === 0) return "";
-  return Object.entries(headers)
-    .map(([k, v]) => `${k}: ${v}`)
-    .join("\n");
-}
+let models: ModelOption[] = [];
+let assistants: AssistantSafe[] = [];
+let selectedModel: string | undefined;
+let selectedAssistantId: string | undefined;
+let streaming = false;
 
-/**
- * Plain-text summary of a not-yet-added MCP server, shown in the confirm step.
- * Env/header values are masked — the form already shows them, and echoing
- * secrets into the summary would only widen their exposure in the DOM.
- */
-function buildMcpSummary(payload: McpAddServerRequest): string {
-  const lines: string[] = [];
-  lines.push(`ID: ${payload.id}`);
-  lines.push(`Name: ${payload.name}`);
-  lines.push(`Transport: ${payload.transport}`);
-  if (payload.description) lines.push(`Description: ${payload.description}`);
-  if (payload.stdio) {
-    const { command, args, cwd, env } = payload.stdio;
-    lines.push(`Command: ${[command, ...(args ?? [])].join(" ")}`);
-    if (cwd) lines.push(`Working directory: ${cwd}`);
-    if (env && Object.keys(env).length > 0) {
-      lines.push("Environment (values hidden):");
-      for (const k of Object.keys(env)) lines.push(`  ${k}=••••`);
-    }
-  }
-  const h = payload.http ?? payload.sse;
-  if (h) {
-    lines.push(`URL: ${h.url}`);
-    if (h.timeoutSeconds !== undefined) lines.push(`Timeout: ${h.timeoutSeconds}s`);
-    if (h.headers && Object.keys(h.headers).length > 0) {
-      lines.push("Headers (values hidden):");
-      for (const k of Object.keys(h.headers)) lines.push(`  ${k}: ••••`);
-    }
-  }
-  return lines.join("\n");
-}
-
-// ---- tiny DOM helpers ------------------------------------------------------
+// ---- DOM helpers ----------------------------------------------------------
 
 function el<K extends keyof HTMLElementTagNameMap>(
   tag: K,
@@ -114,1524 +60,344 @@ function errorText(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
-function describeSchema(schema: unknown): string {
-  if (!schema || typeof schema !== "object") return "";
-  const s = schema as { properties?: Record<string, object>; required?: string[] };
-  if (!s.properties) return "";
-  const keys = Object.keys(s.properties);
-  if (keys.length === 0) return "";
-  const required = new Set(s.required ?? []);
-  return keys.map((k) => (required.has(k) ? k : `${k}?`)).join(", ");
-}
-
-function friendlyKind(kind: AiProviderInfo["kind"]): string {
-  return kind === "local" ? "Local" : "Cloud";
-}
-
-function friendlyTransport(t: string): string {
-  return t;
-}
-
-// ---- provider card ---------------------------------------------------------
-
-interface HealthResult {
-  ok: boolean;
-  latencyMs?: number;
-  version?: string;
-  error?: string;
-}
-
-interface ProviderCard {
-  provider: AiProviderInfo;
-  element: HTMLElement;
-  refresh(): Promise<void>;
-  refreshHealth(): Promise<void>;
-  setBusy(busy: boolean): void;
-}
-
-function createProviderCard(provider: AiProviderInfo): ProviderCard {
-  let health: HealthResult | null = null;
-  let models: Array<{ id: string; name: string }> | null = null;
-  let busy = false;
-
-  const card = el("section", "provider-card");
-  card.dataset.provider = provider.id;
-
-  // Header
-  const header = el("div", "provider-header");
-  const title = el("div", "provider-title");
-  title.append(el("span", "provider-name", provider.displayName));
-  title.append(
-    el("span", `provider-kind provider-kind-${provider.kind}`, friendlyKind(provider.kind)),
-  );
-  header.append(title);
-
-  const baseUrl = provider.config?.baseUrl;
-  if (baseUrl) header.append(el("div", "provider-url", baseUrl));
-  card.append(header);
-
-  if (provider.config?.defaultModel) {
-    card.append(el("div", "provider-default-model", `Default model: ${provider.config.defaultModel}`));
-  }
-
-  // Status row
-  const statusRow = el("div", "provider-status");
-  const dot = el("span", "status-dot status-unknown");
-  const statusText = el("span", "status-text", "Waiting…");
-  statusRow.append(dot, statusText);
-  card.append(statusRow);
-
-  const latency = el("div", "provider-latency");
-  card.append(latency);
-
-  const errorBox = el("div", "provider-error");
-  errorBox.hidden = true;
-  card.append(errorBox);
-
-  // Models
-  const modelsSection = el("div", "models-section");
-  const modelsTitle = el("h2", "models-title", "Models");
-  const modelsList = el("ul", "models-list");
-  modelsSection.append(modelsTitle, modelsList);
-  card.append(modelsSection);
-
-  function render(): void {
-    // Status
-    if (busy) {
-      dot.className = "status-dot status-checking";
-      statusText.className = "status-text";
-      statusText.textContent = "Checking…";
-    } else if (!health) {
-      dot.className = "status-dot status-unknown";
-      statusText.className = "status-text";
-      statusText.textContent = "Not checked yet";
-    } else if (health.ok) {
-      dot.className = "status-dot status-ok";
-      statusText.className = "status-text status-ok-c";
-      statusText.textContent = health.version
-        ? `Connected · Ollama v${health.version}`
-        : "Connected";
-    } else {
-      dot.className = "status-dot status-error";
-      statusText.className = "status-text status-err";
-      statusText.textContent = "Connection failed";
-    }
-
-    // Latency
-    if (!busy && health && health.ok && health.latencyMs !== undefined) {
-      latency.textContent = `Latency: ${health.latencyMs} ms`;
-    } else if (!busy && health && !health.ok) {
-      latency.textContent = "";
-    } else {
-      latency.textContent = "";
-    }
-
-    // Error body
-    if (!busy && health && !health.ok && health.error) {
-      errorBox.textContent = health.error;
-      errorBox.hidden = false;
-    } else {
-      errorBox.textContent = "";
-      errorBox.hidden = true;
-    }
-
-    // Models
-    modelsList.replaceChildren();
-    if (!health || !health.ok || models === null) {
-      modelsTitle.textContent = "Models";
-    } else if (models.length === 0) {
-      modelsTitle.textContent = "Models";
-      modelsList.append(el("li", "models-empty", "No models installed yet."));
-    } else {
-      modelsTitle.textContent = `Models (${models.length})`;
-      for (const m of models) {
-        const li = el("li", "model-item");
-        li.append(el("span", "model-name", m.name));
-        if (m.id !== m.name) li.append(el("span", "model-id", m.id));
-        modelsList.append(li);
-      }
-    }
-  }
-
-  /** Health only — what the periodic timer runs, so it never re-lists models. */
-  async function refreshHealth(): Promise<void> {
-    if (busy) return;
-    busy = true;
-    render();
-    try {
-      try {
-        health = await window.api.aiHealth(provider.id);
-        if (!health.ok) models = null;
-      } catch (e) {
-        health = { ok: false, error: errorText(e) };
-        models = null;
-      }
-    } finally {
-      busy = false;
-      render();
-    }
-  }
-
-  /** Full refresh — health, plus models when healthy. Runs on an explicit check. */
-  async function refresh(): Promise<void> {
-    if (busy) return;
-    busy = true;
-    render();
-    try {
-      try {
-        health = await window.api.aiHealth(provider.id);
-      } catch (e) {
-        health = { ok: false, error: errorText(e) };
-        models = null;
-        return;
-      }
-      if (health.ok) {
-        try {
-          const raw = await window.api.aiListModels(provider.id);
-          models = raw.map((m) => ({ id: m.id, name: m.name }));
-        } catch (e) {
-          // Health passed but listing failed — keep health green, models empty
-          models = [];
-          health = { ...health, error: `Models unavailable: ${errorText(e)}` };
-        }
-      } else {
-        models = null;
-      }
-    } finally {
-      busy = false;
-      render();
-    }
-  }
-
-  render();
-  return { provider, element: card, refresh, refreshHealth, setBusy: (b: boolean) => void (busy = b) };
-}
-
-// ---- MCP card --------------------------------------------------------------
-
-interface McpHealthResult {
-  ok: boolean;
-  latencyMs?: number;
-  version?: string;
-  error?: string;
-}
-
-interface McpCard {
-  server: McpServerSafe;
-  element: HTMLElement;
-  refresh(): Promise<void>;
-  refreshHealth(): Promise<void>;
-}
-
-function createMcpCard(server: McpServerSafe, onChanged: () => Promise<void>): McpCard {
-  let health: McpHealthResult | null = null;
-  let tools: Array<{ name: string; description?: string; inputSchema?: unknown }> | null = null;
-  let busy = false;
-
-  const card = el("section", "provider-card mcp-card");
-  card.dataset.mcp = server.id;
-  if (server.enabled === false) card.classList.add("mcp-disabled");
-
-  // Header
-  const header = el("div", "provider-header");
-  const title = el("div", "provider-title");
-  title.append(el("span", "provider-name", server.name));
-  title.append(el("span", `transport-badge transport-badge-${server.transport}`, friendlyTransport(server.transport)));
-  if (server.enabled === false) {
-    title.append(el("span", "provider-kind provider-kind-cloud", "Disabled"));
-  }
-  header.append(title);
-  // show id subtly
-  header.append(el("div", "provider-url", `id: ${server.id}`));
-  card.append(header);
-
-  if (server.description) {
-    card.append(el("div", "mcp-meta", server.description));
-  }
-
-  // Transport details
-  const detailLine = el("div", "provider-url");
-  if (server.transport === "stdio" && server.stdio) {
-    const args = server.stdio.args?.join(" ") ?? "";
-    detailLine.textContent = `${server.stdio.command} ${args}`.trim();
-    if (server.stdio.cwd) detailLine.textContent += ` · cwd: ${server.stdio.cwd}`;
-  } else if (server.http) {
-    detailLine.textContent = server.http.url;
-  }
-  if (detailLine.textContent) card.append(detailLine);
-
-  // Status row (same visual language as Ollama)
-  const statusRow = el("div", "provider-status");
-  const dot = el("span", "status-dot status-unknown");
-  const statusText = el("span", "status-text", "Waiting…");
-  statusRow.append(dot, statusText);
-  card.append(statusRow);
-
-  const latency = el("div", "provider-latency");
-  card.append(latency);
-
-  const errorBox = el("div", "provider-error");
-  errorBox.hidden = true;
-  card.append(errorBox);
-
-  // Tools section — analogous to Models
-  const toolsSection = el("div", "models-section");
-  const toolsTitle = el("h2", "models-title", "Tools");
-  const toolsList = el("ul", "models-list");
-  toolsSection.append(toolsTitle, toolsList);
-  card.append(toolsSection);
-
-  // Actions
-  const actions = el("div", "mcp-actions");
-  const editBtn = el("button", "btn") as HTMLButtonElement;
-  editBtn.type = "button";
-  editBtn.textContent = "Edit";
-  editBtn.title = "Edit this MCP server";
-  const connectBtn = el("button", "btn btn-primary") as HTMLButtonElement;
-  connectBtn.type = "button";
-  connectBtn.textContent = "Check";
-  const toggleBtn = el("button", "btn") as HTMLButtonElement;
-  toggleBtn.type = "button";
-  toggleBtn.textContent = server.enabled === false ? "Enable" : "Disable";
-  toggleBtn.title = server.enabled === false ? "Enable this server" : "Disable this server";
-  if (server.enabled === false) toggleBtn.classList.add("btn-primary");
-  const removeBtn = el("button", "btn") as HTMLButtonElement;
-  removeBtn.type = "button";
-  removeBtn.textContent = "Remove";
-  actions.append(editBtn, connectBtn, toggleBtn, removeBtn);
-  card.append(actions);
-
-  function render(): void {
-    const isDisabled = server.enabled === false;
-    if (busy) {
-      dot.className = "status-dot status-checking";
-      statusText.className = "status-text";
-      statusText.textContent = "Checking…";
-      editBtn.disabled = true;
-      connectBtn.disabled = true;
-      toggleBtn.disabled = true;
-      removeBtn.disabled = true;
-    } else if (isDisabled) {
-      dot.className = "status-dot status-unknown";
-      statusText.className = "status-text";
-      statusText.textContent = "Disabled";
-      editBtn.disabled = false;
-      connectBtn.disabled = true;
-      toggleBtn.disabled = false;
-      removeBtn.disabled = false;
-    } else if (!health) {
-      dot.className = "status-dot status-unknown";
-      statusText.className = "status-text";
-      statusText.textContent = "Not checked yet";
-      editBtn.disabled = false;
-      connectBtn.disabled = false;
-      toggleBtn.disabled = false;
-      removeBtn.disabled = false;
-    } else if (health.ok) {
-      dot.className = "status-dot status-ok";
-      statusText.className = "status-text status-ok-c";
-      statusText.textContent = health.version ? `Connected · v${health.version}` : "Connected";
-      editBtn.disabled = false;
-      connectBtn.disabled = false;
-      toggleBtn.disabled = false;
-      removeBtn.disabled = false;
-    } else {
-      dot.className = "status-dot status-error";
-      statusText.className = "status-text status-err";
-      statusText.textContent = "Connection failed";
-      editBtn.disabled = false;
-      connectBtn.disabled = false;
-      toggleBtn.disabled = false;
-      removeBtn.disabled = false;
-    }
-
-    if (!busy && health && health.ok && health.latencyMs !== undefined) {
-      latency.textContent = `Latency: ${health.latencyMs} ms`;
-    } else {
-      latency.textContent = "";
-    }
-
-    if (!busy && health && !health.ok && health.error) {
-      errorBox.textContent = health.error;
-      errorBox.hidden = false;
-    } else {
-      errorBox.textContent = "";
-      errorBox.hidden = true;
-    }
-
-    // Tools
-    toolsList.replaceChildren();
-    if (!health || !health.ok || tools === null) {
-      toolsTitle.textContent = "Tools";
-      if (health && !health.ok) {
-        // hide empty message when failed — error box shows reason
-      } else if (health && health.ok && tools !== null && tools.length === 0) {
-        // will be handled below
-      }
-    }
-    if (!health || !health.ok) {
-      toolsTitle.textContent = "Tools";
-    } else if (tools !== null && tools.length === 0) {
-      toolsTitle.textContent = "Tools";
-      toolsList.append(el("li", "models-empty", "No tools exposed."));
-    } else if (tools && tools.length > 0) {
-      toolsTitle.textContent = `Tools (${tools.length})`;
-      for (const t of tools) {
-        const li = el("li", "model-item tool-item");
-        const head = el("div", "tool-head");
-        head.append(el("span", "model-name", t.name));
-        if (t.description) head.append(el("span", "model-id", t.description));
-        li.append(head);
-
-        const runBox = el("details", "tool-run");
-        const summary = el("summary", "tool-run-summary", "Run");
-        const argsLabel = el("label", "tool-arg-label", "Arguments (JSON)");
-        const argsText = el("textarea", "tool-args") as HTMLTextAreaElement;
-        argsText.rows = 3;
-        argsText.placeholder = '{}' + ' — e.g. {"query":"..."}';
-        const hintText = describeSchema(t.inputSchema);
-        const hint = el("div", "tool-hint", hintText ? `Params: ${hintText}` : "No required parameters.");
-        const go = el("button", "btn btn-primary btn-sm") as HTMLButtonElement;
-        go.type = "button";
-        go.textContent = "Execute";
-        const resultBox = el("pre", "tool-result");
-        resultBox.hidden = true;
-        runBox.append(summary, argsLabel, argsText, hint, go, resultBox);
-        li.append(runBox);
-
-        go.addEventListener("click", async () => {
-          let args: Record<string, unknown> | undefined;
-          const raw = argsText.value.trim();
-          if (raw) {
-            try {
-              args = JSON.parse(raw) as Record<string, unknown>;
-            } catch {
-              resultBox.classList.add("tool-result-error");
-              resultBox.textContent = "Invalid JSON arguments.";
-              resultBox.hidden = false;
-              return;
-            }
-          }
-          go.disabled = true;
-          go.textContent = "Running…";
-          try {
-            const res = await window.api.mcpCallTool(server.id, t.name, args);
-            resultBox.classList.remove("tool-result-error");
-            let payload: string;
-            if (res.text) payload = res.text;
-            else if (res.structuredContent !== undefined) payload = JSON.stringify(res.structuredContent, null, 2);
-            else if (res.content !== undefined) payload = JSON.stringify(res.content, null, 2);
-            else payload = "(empty result)";
-            resultBox.textContent = res.isError ? `Tool errored:\n${payload}` : payload;
-          } catch (e) {
-            resultBox.classList.add("tool-result-error");
-            resultBox.textContent = `Call failed: ${errorText(e)}`;
-          } finally {
-            resultBox.hidden = false;
-            go.disabled = false;
-            go.textContent = "Execute";
-          }
-        });
-        toolsList.append(li);
-      }
-    } else {
-      toolsTitle.textContent = "Tools";
-    }
-  }
-
-  /** Health only — what the periodic timer runs, so it never re-lists tools. */
-  async function refreshHealth(): Promise<void> {
-    if (busy) return;
-    busy = true;
-    render();
-    try {
-      try {
-        health = await window.api.mcpHealth(server.id);
-        if (!health.ok) tools = null;
-      } catch (e) {
-        health = { ok: false, error: errorText(e) };
-        tools = null;
-      }
-    } finally {
-      busy = false;
-      render();
-    }
-  }
-
-  /** Full refresh — health, plus tools when healthy. Explicit "Check" or after edits. */
-  async function refresh(): Promise<void> {
-    if (busy) return;
-    busy = true;
-    render();
-    try {
-      try {
-        health = await window.api.mcpHealth(server.id);
-      } catch (e) {
-        health = { ok: false, error: errorText(e) };
-        tools = null;
-        return;
-      }
-      if (health.ok) {
-        try {
-          const raw = await window.api.mcpListTools(server.id);
-          tools = raw.map((t) => ({ name: t.name, description: t.description, inputSchema: t.inputSchema }));
-        } catch (e) {
-          // Tools listing failed but health is fine — keep the list empty rather
-          // than turning a healthy status red.
-          tools = [];
-        }
-      } else {
-        tools = null;
-      }
-    } finally {
-      busy = false;
-      render();
-    }
-  }
-
-  connectBtn.addEventListener("click", () => void refresh());
-  toggleBtn.addEventListener("click", async () => {
-    const nextEnabled = server.enabled === false ? true : false;
-    toggleBtn.disabled = true;
-    try {
-      await window.api.mcpSetEnabled(server.id, nextEnabled);
-      await onChanged();
-    } catch (e) {
-      alert(`Failed to ${nextEnabled ? "enable" : "disable"}: ${errorText(e)}`);
-      toggleBtn.disabled = false;
-    }
-  });
-  removeBtn.addEventListener("click", async () => {
-    if (!confirm(`Remove MCP server "${server.name}" (${server.id})? This cannot be undone.`)) return;
-    removeBtn.disabled = true;
-    try {
-      await window.api.mcpRemoveServer(server.id);
-      await onChanged();
-    } catch (e) {
-      alert(`Failed to remove: ${errorText(e)}`);
-      removeBtn.disabled = false;
-    }
-  });
-  editBtn.addEventListener("click", () => {
-    if (openMcpEdit) openMcpEdit(server);
-  });
-
-  render();
-  return { server, element: card, refresh, refreshHealth };
-}
-
-// ---- assistant card ----------------------------------------------------------
-
-interface AssistantCard {
-  assistant: AssistantSafe;
-  element: HTMLElement;
-}
-
-function friendlyParamLabel(k: string, v: unknown): string {
-  return `${k}=${String(v)}`;
-}
-
-function createAssistantCard(assistant: AssistantSafe, onChanged: () => Promise<void>): AssistantCard {
-  const card = el("section", "provider-card assistant-card");
-  card.dataset.assistant = assistant.id;
-  if (assistant.enabled === false) card.classList.add("assistant-disabled");
-
-  // Header
-  const header = el("div", "provider-header");
-  const title = el("div", "provider-title");
-  if (assistant.emoji) title.append(el("span", "assistant-emoji", assistant.emoji));
-  title.append(el("span", "provider-name", assistant.name));
-  if (assistant.enabled === false) {
-    title.append(el("span", "provider-kind provider-kind-cloud", "Disabled"));
-  } else {
-    title.append(el("span", "provider-kind provider-kind-local", "Active"));
-  }
-  header.append(title);
-  header.append(el("div", "provider-url", `id: ${assistant.id}`));
-  card.append(header);
-
-  if (assistant.description) {
-    card.append(el("div", "mcp-meta", assistant.description));
-  }
-
-  // Adherence line
-  if (assistant.providerId || assistant.model) {
-    const adherence = el("div", "provider-url");
-    const parts: string[] = [];
-    if (assistant.providerId) parts.push(`provider: ${assistant.providerId}`);
-    if (assistant.model) parts.push(`model: ${assistant.model}`);
-    adherence.textContent = parts.join(" · ");
-    card.append(adherence);
-  }
-
-  // Instructions preview
-  const instr = el("div", "assistant-instructions");
-  instr.textContent = assistant.instructions;
-  instr.title = assistant.instructions;
-  card.append(instr);
-
-  // Parameters chips
-  if (assistant.parameters && Object.keys(assistant.parameters).length > 0) {
-    const chips = el("div", "assistant-params");
-    for (const [k, v] of Object.entries(assistant.parameters)) {
-      if (v === undefined) continue;
-      const text = Array.isArray(v) ? `${k}=${v.join(",")}` : friendlyParamLabel(k, v);
-      chips.append(el("span", "param-chip", text));
-    }
-    if (chips.childNodes.length > 0) card.append(chips);
-  }
-
-  // Timestamps
-  if (assistant.updatedAt || assistant.createdAt) {
-    const meta = el("div", "provider-url");
-    const ts = assistant.updatedAt ?? assistant.createdAt;
-    if (ts) {
-      try {
-        const d = new Date(ts);
-        meta.textContent = `Updated: ${d.toLocaleString()}`;
-      } catch {
-        meta.textContent = `Updated: ${ts}`;
-      }
-      card.append(meta);
-    }
-  }
-
-  // Actions
-  const actions = el("div", "assistant-actions");
-  const editBtn = el("button", "btn") as HTMLButtonElement;
-  editBtn.type = "button";
-  editBtn.textContent = "Edit";
-  editBtn.title = "Edit this assistant";
-  const toggleBtn = el("button", "btn") as HTMLButtonElement;
-  toggleBtn.type = "button";
-  toggleBtn.textContent = assistant.enabled === false ? "Enable" : "Disable";
-  toggleBtn.title = assistant.enabled === false ? "Enable this assistant" : "Disable this assistant";
-  if (assistant.enabled === false) toggleBtn.classList.add("btn-primary");
-  const removeBtn = el("button", "btn") as HTMLButtonElement;
-  removeBtn.type = "button";
-  removeBtn.textContent = "Remove";
-  actions.append(editBtn, toggleBtn, removeBtn);
-  card.append(actions);
-
-  toggleBtn.addEventListener("click", async () => {
-    const nextEnabled = assistant.enabled === false ? true : false;
-    toggleBtn.disabled = true;
-    try {
-      await window.api.assistantSetEnabled(assistant.id, nextEnabled);
-      await onChanged();
-    } catch (e) {
-      alert(`Failed to ${nextEnabled ? "enable" : "disable"}: ${errorText(e)}`);
-      toggleBtn.disabled = false;
-    }
-  });
-  removeBtn.addEventListener("click", async () => {
-    if (!confirm(`Remove assistant "${assistant.name}" (${assistant.id})? This cannot be undone.`)) return;
-    removeBtn.disabled = true;
-    try {
-      await window.api.assistantRemove(assistant.id);
-      await onChanged();
-    } catch (e) {
-      alert(`Failed to remove: ${errorText(e)}`);
-      removeBtn.disabled = false;
-    }
-  });
-  editBtn.addEventListener("click", () => {
-    if (openAssistantEdit) openAssistantEdit(assistant);
-  });
-
-  return { assistant, element: card };
-}
-
-// ---- page level ------------------------------------------------------------
-
-let cards: ProviderCard[] = [];
-let lastCheck = 0;
-
-let mcpCards: McpCard[] = [];
-let mcpLastCheck = 0;
-
-let assistantCards: AssistantCard[] = [];
-let assistantLastCheck = 0;
-
-function setLoading(loading: boolean, text: string): void {
-  const icon = document.getElementById(REFRESH_ICON_ID);
-  const btn = document.getElementById(REFRESH_BTN_ID) as HTMLButtonElement | null;
-  if (icon) icon.style.display = loading ? "" : "none";
-  if (btn) btn.disabled = loading;
-  void text; // keep for potential future use
-}
-
-function setMcpLoading(loading: boolean): void {
-  const icon = document.getElementById(MCP_REFRESH_ICON_ID);
-  const btn = document.getElementById(MCP_REFRESH_BTN_ID) as HTMLButtonElement | null;
-  if (icon) icon.style.display = loading ? "" : "none";
-  if (btn) btn.disabled = loading;
-}
-
-function updateLastCheck(): void {
-  const node = document.getElementById(LAST_CHECK_ID);
-  if (!node || lastCheck === 0) return;
-  const dt = new Date(lastCheck);
-  const t = dt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-  const ago = Math.max(0, Math.round((Date.now() - lastCheck) / 1000));
-  node.textContent = `Last checked at ${t} · ${ago}s ago`;
-}
-
-function updateMcpLastCheck(): void {
-  const node = document.getElementById(MCP_LAST_CHECK_ID);
-  if (!node || mcpLastCheck === 0) return;
-  const dt = new Date(mcpLastCheck);
-  const t = dt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-  const ago = Math.max(0, Math.round((Date.now() - mcpLastCheck) / 1000));
-  node.textContent = `Last checked at ${t} · ${ago}s ago`;
-}
-
-function setAssistantLoading(loading: boolean): void {
-  const icon = document.getElementById(ASSISTANT_REFRESH_ICON_ID);
-  const btn = document.getElementById(ASSISTANT_REFRESH_BTN_ID) as HTMLButtonElement | null;
-  if (icon) icon.style.display = loading ? "" : "none";
-  if (btn) btn.disabled = loading;
-}
-
-function updateAssistantLastCheck(): void {
-  const node = document.getElementById(ASSISTANT_LAST_CHECK_ID);
-  if (!node || assistantLastCheck === 0) return;
-  const dt = new Date(assistantLastCheck);
-  const t = dt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-  const ago = Math.max(0, Math.round((Date.now() - assistantLastCheck) / 1000));
-  node.textContent = `Last checked at ${t} · ${ago}s ago`;
-}
-
-function renderContent(): void {
-  const content = document.getElementById(CONTENT_ID);
-  content?.replaceChildren();
-  for (const c of cards) content?.append(c.element);
-}
-
-function renderMcpContent(): void {
-  const content = document.getElementById(MCP_CONTENT_ID);
-  if (!content) return;
-  content.replaceChildren();
-  if (mcpCards.length === 0) {
-    const empty = el("div", "mcp-empty", "No MCP servers configured. Add one to connect tools.");
-    content.append(empty);
-    return;
-  }
-  for (const c of mcpCards) content.append(c.element);
-}
-
-function renderAssistantContent(): void {
-  const content = document.getElementById(ASSISTANT_CONTENT_ID);
-  if (!content) return;
-  content.replaceChildren();
-  if (assistantCards.length === 0) {
-    const empty = el("div", "assistant-empty", "No assistants yet. Create one to customize system prompts & sampling.");
-    content.append(empty);
-    return;
-  }
-  for (const c of assistantCards) content.append(c.element);
-}
-
-async function refreshAll(showSpinner: boolean): Promise<void> {
-  if (cards.length === 0) return;
-  if (showSpinner) setLoading(true, "");
+async function firstCapableProvider(): Promise<AiProviderInfo | undefined> {
   try {
-    await Promise.all(cards.map((c) => c.refresh()));
-  } finally {
-    if (showSpinner) setLoading(false, "");
-    lastCheck = Date.now();
-    updateLastCheck();
-  }
-}
-
-/** Periodic pass: refresh health only, leaving already-loaded models in place. */
-async function refreshAllHealth(): Promise<void> {
-  if (cards.length === 0) return;
-  await Promise.all(cards.map((c) => c.refreshHealth()));
-  lastCheck = Date.now();
-  updateLastCheck();
-}
-
-async function refreshAllMcp(showSpinner: boolean): Promise<void> {
-  if (mcpCards.length === 0) {
-    mcpLastCheck = Date.now();
-    updateMcpLastCheck();
-    return;
-  }
-  if (showSpinner) setMcpLoading(true);
-  try {
-    await Promise.all(mcpCards.map((c) => c.refresh()));
-  } finally {
-    if (showSpinner) setMcpLoading(false);
-    mcpLastCheck = Date.now();
-    updateMcpLastCheck();
-  }
-}
-
-/** Periodic pass: refresh health only, leaving already-loaded tools in place. */
-async function refreshAllMcpHealth(): Promise<void> {
-  if (mcpCards.length === 0) {
-    mcpLastCheck = Date.now();
-    updateMcpLastCheck();
-    return;
-  }
-  await Promise.all(mcpCards.map((c) => c.refreshHealth()));
-  mcpLastCheck = Date.now();
-  updateMcpLastCheck();
-}
-
-async function loadMcpServers(): Promise<void> {
-  const content = document.getElementById(MCP_CONTENT_ID);
-  if (!content) return;
-  if (!window.api?.mcpListServers) {
-    content.replaceChildren(el("p", "load-error", "MCP API unavailable — please relaunch the app."));
-    return;
-  }
-  try {
-    const servers = await window.api.mcpListServers();
-    mcpCards = servers.map((s) => createMcpCard(s, async () => {
-      await loadMcpServers();
-      await refreshAllMcp(true);
-    }));
-    renderMcpContent();
+    const providers = await window.api.aiListProviders();
+    return providers.find((p) => p.capabilities?.chat) ?? providers[0];
   } catch (e) {
-    content.replaceChildren(el("p", "load-error", `Failed to load MCP servers: ${errorText(e)}`));
-    return;
+    return undefined;
   }
-  await refreshAllMcp(true);
+}
+
+async function loadModels(): Promise<void> {
+  try {
+    const provider = await firstCapableProvider();
+    const providerId = provider?.id ?? PROVIDER_ID;
+    const raw = await window.api.aiListModels(providerId);
+    models = raw.map((m) => ({ id: m.id, name: m.name }));
+    if (models.length > 0 && !selectedModel) {
+      // Default: the first model, or the provider's configured default.
+      const def = provider?.config?.defaultModel;
+      selectedModel = models.some((m) => m.id === def) ? def : models[0]!.id;
+    }
+  } catch (e) {
+    models = [];
+    console.error("model load failed:", errorText(e));
+  }
+  renderModelPanel();
+  renderModelButton();
 }
 
 async function loadAssistants(): Promise<void> {
-  const content = document.getElementById(ASSISTANT_CONTENT_ID);
-  if (!content) return;
-  if (!window.api?.assistantList) {
-    content.replaceChildren(el("p", "load-error", "Assistant API unavailable — please relaunch the app."));
-    return;
-  }
-  if (assistantLastCheck === 0) setAssistantLoading(true);
   try {
-    const assistants = await window.api.assistantList();
-    assistantCards = assistants.map((a) => createAssistantCard(a, async () => {
-      await loadAssistants();
-    }));
-    renderAssistantContent();
+    assistants = await window.api.assistantList();
   } catch (e) {
-    content.replaceChildren(el("p", "load-error", `Failed to load assistants: ${errorText(e)}`));
-    return;
-  } finally {
-    setAssistantLoading(false);
-    assistantLastCheck = Date.now();
-    updateAssistantLastCheck();
+    assistants = [];
+    console.error("assistant load failed:", errorText(e));
+  }
+  renderAssistantPanel();
+}
+
+// ---- Chat rendering -------------------------------------------------------
+
+function setView(hasMessages: boolean): void {
+  const empty = $("empty-state");
+  const messages = $("messages");
+  if (hasMessages) {
+    empty.hidden = true;
+    messages.toggleAttribute("shown", true);
+  } else {
+    messages.toggleAttribute("shown", false);
+    messages.innerHTML = "";
+    empty.hidden = false;
   }
 }
 
-async function refreshAssistants(showSpinner: boolean): Promise<void> {
-  if (showSpinner) setAssistantLoading(true);
+function appendUserBubble(text: string): void {
+  const list = $<HTMLDivElement>("messages");
+  const msg = el("div", "msg user");
+  msg.append(el("div", "bubble", text));
+  list.append(msg);
+  scrollToBottom();
+}
+
+function appendAssistantContainer(): HTMLDivElement {
+  const list = $<HTMLDivElement>("messages");
+  const msg = el("div", "msg assistant");
+  const meta = el("div", "meta", selectedModel ?? "");
+  const bubble = el("div", "bubble", "");
+  msg.append(meta);
+  msg.append(bubble);
+  const toolArea = el("div") as HTMLDivElement;
+  msg.append(toolArea);
+  list.append(msg);
+  scrollToBottom();
+  return msg as HTMLDivElement;
+}
+
+function scrollToBottom(): void {
+  const list = $<HTMLDivElement>("messages");
+  list.scrollTop = list.scrollHeight;
+}
+
+function renderToolActivity(container: HTMLElement, toolStart: ChatStreamEvent & { type: "tool_start" }): void {
+  const line = el("div", "tool-line");
+  line.dataset.tool = toolStart.tool;
+  const spin = el("span") as HTMLSpanElement;
+  spin.className = "spin";
+  const label = el("span", undefined, `Using ${toolStart.tool}…`);
+  line.append(spin, label);
+  container.append(line);
+}
+
+function finishToolLine(container: HTMLElement, tool: string, ok: boolean, result: string): void {
+  const line = container.querySelector(`.tool-line[data-tool="${tool}"]`);
+  if (line) {
+    line.querySelector(".spin")?.remove();
+    line.append(el("span", undefined, ok ? `✓ ${tool}` : `✗ ${tool}`));
+  }
+}
+
+function errorBubble(text: string, container?: HTMLElement): void {
+  const list = $<HTMLDivElement>("messages");
+  const msg = el("div", "msg assistant");
+  const bubble = el("div", "bubble", text);
+  bubble.style.color = "var(--err)";
+  if (container) container.append(bubble);
+  else {
+    msg.append(bubble);
+    list.append(msg);
+  }
+  scrollToBottom();
+}
+
+// ---- Chat send logic ------------------------------------------------------
+
+function buildRequest(text: string) {
+  const messages: Array<{ role: "system" | "user" | "assistant"; content: string }> = [{ role: "user", content: text }];
+  if (selectedAssistantId) {
+    const assistant = assistants.find((a) => a.id === selectedAssistantId);
+    if (assistant?.providerId) {
+      // Adhere: use the assistant's provider if it specifies one.
+      return {
+        providerId: assistant.providerId,
+        messages,
+        model: assistant.model ?? selectedModel,
+        assistantId: assistant.id,
+      };
+    }
+  }
+  return { providerId: PROVIDER_ID, messages, model: selectedModel, assistantId: selectedAssistantId };
+}
+
+async function sendMessage(): Promise<void> {
+  const input = $<HTMLTextAreaElement>("chat-input");
+  const text = input.value.trim();
+  if (!text || streaming) return;
+  input.value = "";
+  input.style.height = "auto";
+
+  appendUserBubble(text);
+  const container = appendAssistantContainer();
+  const bubble = (container.querySelector(".bubble") as HTMLElement) ?? container;
+  let answer = "";
+
+  setView(true);
+  streaming = true;
+  setSendEnabled(false);
+
+  const body = buildRequest(text);
+  const handlers: ChatStreamHandlers = {
+    onEvent(event: ChatStreamEvent) {
+      switch (event.type) {
+        case "delta":
+          answer += event.delta;
+          bubble.textContent = answer;
+          scrollToBottom();
+          break;
+        case "tool_start":
+          renderToolActivity(container, event);
+          scrollToBottom();
+          break;
+        case "tool_end":
+          finishToolLine(container, event.tool, event.ok, event.result);
+          scrollToBottom();
+          break;
+        case "error":
+          errorBubble(event.error, container);
+          break;
+        default:
+          break;
+      }
+    },
+    onEnd() {
+      bubble.textContent = answer || bubble.textContent || "(empty reply)";
+      streaming = false;
+      setSendEnabled(true);
+    },
+  };
+
   try {
-    await loadAssistants();
-  } finally {
-    if (showSpinner) setAssistantLoading(false);
-    assistantLastCheck = Date.now();
-    updateAssistantLastCheck();
+    await window.api.aiChatStream(body, handlers);
+  } catch (e) {
+    errorBubble(`Chat failed: ${errorText(e)}`, container);
+    streaming = false;
+    setSendEnabled(true);
   }
 }
 
-// ---- Add MCP dialog -------------------------------------------------------
-
-function parseArgs(input: string): string[] | undefined {
-  const t = input.trim();
-  if (!t) return undefined;
-  // split by comma or whitespace respecting quoted? keep simple: split by comma then whitespace
-  // If comma present, split by comma; otherwise split by whitespace
-  if (t.includes(",")) {
-    return t.split(",").map((s) => s.trim()).filter(Boolean);
-  }
-  // whitespace split, but preserve quoted? simple whitespace split
-  return t.split(/\s+/).filter(Boolean);
+function setSendEnabled(enabled: boolean): void {
+  $<HTMLButtonElement>("composer-send").disabled = !enabled;
 }
 
-function parseEnv(input: string): Record<string, string> | undefined {
-  const t = input.trim();
-  if (!t) return undefined;
-  const out: Record<string, string> = {};
-  for (const line of t.split("\n")) {
-    const raw = line.trim();
-    if (!raw || raw.startsWith("#")) continue;
-    const eq = raw.indexOf("=");
-    if (eq === -1) continue;
-    const k = raw.slice(0, eq).trim();
-    const v = raw.slice(eq + 1).trim();
-    if (!k) continue;
-    out[k] = v;
+// ---- Panels ---------------------------------------------------------------
+
+function renderModelPanel(): void {
+  const list = $<HTMLDivElement>("model-list");
+  list.replaceChildren();
+  if (models.length === 0) {
+    list.append(el("div", "side-item", "No models found"));
+    return;
   }
-  return Object.keys(out).length ? out : undefined;
+  for (const m of models) {
+    const btn = el("button", "side-item") as HTMLButtonElement;
+    btn.type = "button";
+    btn.classList.toggle("selected", m.id === selectedModel);
+    btn.append(el("span", undefined, m.name));
+    btn.append(el("span", "grip", "Ollama"));
+    btn.addEventListener("click", () => {
+      selectedModel = m.id;
+      renderModelPanel();
+      renderModelButton();
+      closeModelMenu();
+    });
+    list.append(btn);
+  }
 }
 
-function parseHeaders(input: string): Record<string, string> | undefined {
-  const t = input.trim();
-  if (!t) return undefined;
-  const out: Record<string, string> = {};
-  for (const line of t.split("\n")) {
-    const raw = line.trim();
-    if (!raw || raw.startsWith("#")) continue;
-    const colon = raw.indexOf(":");
-    if (colon === -1) continue;
-    const k = raw.slice(0, colon).trim();
-    const v = raw.slice(colon + 1).trim();
-    if (!k) continue;
-    out[k] = v;
-  }
-  return Object.keys(out).length ? out : undefined;
-}
-
-function setupMcpDialog(): void {
-  const dialog = document.getElementById(MCP_DIALOG_ID) as HTMLDialogElement | null;
-  const addBtn = document.getElementById(MCP_ADD_BTN_ID) as HTMLButtonElement | null;
-  const closeBtn = document.getElementById(MCP_DIALOG_CLOSE_ID) as HTMLButtonElement | null;
-  const cancelBtn = document.getElementById(MCP_CANCEL_BTN_ID) as HTMLButtonElement | null;
-  const form = document.getElementById(MCP_FORM_ID) as HTMLFormElement | null;
-  const errBox = document.getElementById(MCP_FORM_ERROR_ID);
-  const transportEl = document.getElementById("mcp-transport") as HTMLSelectElement | null;
-  const stdioFields = document.getElementById("mcp-fields-stdio");
-  const httpFields = document.getElementById("mcp-fields-http");
-  const dialogTitle = document.getElementById("mcp-dialog-title");
-  const submitBtn = document.getElementById("mcp-submit-btn") as HTMLButtonElement | null;
-  const idInput = document.getElementById("mcp-id") as HTMLInputElement | null;
-  if (!dialog || !addBtn || !form || !transportEl || !stdioFields || !httpFields) return;
-
-  function updateTransportFields(): void {
-    const v = transportEl!.value;
-    if (v === "stdio") {
-      stdioFields!.classList.remove("hidden");
-      httpFields!.classList.add("hidden");
-    } else {
-      stdioFields!.classList.add("hidden");
-      httpFields!.classList.remove("hidden");
-    }
-  }
-  transportEl.addEventListener("change", updateTransportFields);
-  updateTransportFields();
-
-  function setDialogMode(mode: "add" | "edit"): void {
-    if (dialogTitle) dialogTitle.textContent = mode === "edit" ? "Edit MCP Server" : "Add MCP Server";
-    if (submitBtn) submitBtn.textContent = mode === "edit" ? "Save changes" : "Add server";
-  }
-
-  function open(): void {
-    editingMcpId = null;
-    setDialogMode("add");
-    if (errBox) { errBox.textContent = ""; errBox.hidden = true; }
-    form!.reset();
-    if (idInput) { idInput.disabled = false; idInput.removeAttribute("aria-disabled"); }
-    transportEl!.disabled = false;
-    // reset transport default to stdio
-    transportEl!.value = "stdio";
-    updateTransportFields();
-    // default enabled true handled by form reset
-    if (typeof dialog!.showModal === "function") dialog!.showModal();
-    else (dialog as unknown as { open: boolean }).open = true;
-  }
-
-  function openForEdit(server: McpServerSafe): void {
-    editingMcpId = server.id;
-    setDialogMode("edit");
-    if (errBox) { errBox.textContent = ""; errBox.hidden = true; }
-    form!.reset();
-    // Populate common fields
-    const idEl = document.getElementById("mcp-id") as HTMLInputElement | null;
-    const nameEl = document.getElementById("mcp-name") as HTMLInputElement | null;
-    const descEl = document.getElementById("mcp-desc") as HTMLInputElement | null;
-    const enabledEl = document.getElementById("mcp-enabled") as HTMLSelectElement | null;
-    if (idEl) { idEl.value = server.id; idEl.disabled = true; }
-    if (nameEl) nameEl.value = server.name;
-    if (descEl) descEl.value = server.description ?? "";
-    if (enabledEl) enabledEl.value = server.enabled ? "true" : "false";
-    transportEl!.value = server.transport;
-    transportEl!.disabled = true; // transport change not allowed via edit (recreate if needed)
-    updateTransportFields();
-
-    if (server.transport === "stdio") {
-      const cmdEl = document.getElementById("mcp-command") as HTMLInputElement | null;
-      const cwdEl = document.getElementById("mcp-cwd") as HTMLInputElement | null;
-      const argsEl = document.getElementById("mcp-args") as HTMLInputElement | null;
-      const envEl = document.getElementById("mcp-env") as HTMLTextAreaElement | null;
-      if (cmdEl) cmdEl.value = server.stdio?.command ?? "";
-      if (cwdEl) cwdEl.value = server.stdio?.cwd ?? "";
-      if (argsEl) argsEl.value = server.stdio?.args?.join(" ") ?? "";
-      if (envEl) envEl.value = envToText(server.stdio?.env);
-      if (envEl && server.stdio?.env && Object.values(server.stdio.env).includes("***")) {
-        envEl.placeholder = "Secrets shown as *** — leave as is to keep, or replace with new value";
-      }
-      // clear http fields
-      const urlEl = document.getElementById("mcp-url") as HTMLInputElement | null;
-      const headersEl = document.getElementById("mcp-headers") as HTMLTextAreaElement | null;
-      const timeoutEl = document.getElementById("mcp-timeout") as HTMLInputElement | null;
-      if (urlEl) urlEl.value = "";
-      if (headersEl) headersEl.value = "";
-      if (timeoutEl) timeoutEl.value = "";
-    } else {
-      const urlEl = document.getElementById("mcp-url") as HTMLInputElement | null;
-      const headersEl = document.getElementById("mcp-headers") as HTMLTextAreaElement | null;
-      const timeoutEl = document.getElementById("mcp-timeout") as HTMLInputElement | null;
-      if (urlEl) urlEl.value = server.http?.url ?? "";
-      if (headersEl) headersEl.value = headersToText(server.http?.headers);
-      if (headersEl && server.http?.headers && Object.values(server.http.headers).includes("***")) {
-        headersEl.placeholder = "Secrets shown as *** — leave as is to keep, or replace with new value";
-      }
-      if (timeoutEl) timeoutEl.value = server.http?.timeoutSeconds ? String(server.http.timeoutSeconds) : "";
-      // clear stdio fields
-      const cmdEl = document.getElementById("mcp-command") as HTMLInputElement | null;
-      const cwdEl = document.getElementById("mcp-cwd") as HTMLInputElement | null;
-      const argsEl = document.getElementById("mcp-args") as HTMLInputElement | null;
-      const envEl = document.getElementById("mcp-env") as HTMLTextAreaElement | null;
-      if (cmdEl) cmdEl.value = "";
-      if (cwdEl) cwdEl.value = "";
-      if (argsEl) argsEl.value = "";
-      if (envEl) envEl.value = "";
-    }
-
-    if (typeof dialog!.showModal === "function") dialog!.showModal();
-    else (dialog as unknown as { open: boolean }).open = true;
-  }
-
-  // expose for cards
-  openMcpEdit = openForEdit;
-
-  function close(): void {
-    if (typeof dialog!.close === "function") {
-      try { dialog!.close(); } catch { dialog!.removeAttribute("open"); }
-    } else dialog!.removeAttribute("open");
-    // reset edit state after close
-    editingMcpId = null;
-    if (idInput) idInput.disabled = false;
-    transportEl!.disabled = false;
-    setDialogMode("add");
-  }
-
-  addBtn.addEventListener("click", open);
-  closeBtn?.addEventListener("click", close);
-  cancelBtn?.addEventListener("click", close);
-  dialog.addEventListener("click", (e) => {
-    const target = e.target as HTMLElement;
-    if (target === dialog) close();
+function renderAssistantPanel(): void {
+  const list = $<HTMLDivElement>("assistant-list");
+  list.replaceChildren();
+  const none = el("button", "side-item") as HTMLButtonElement;
+  none.type = "button";
+  none.classList.toggle("selected", !selectedAssistantId);
+  none.append(el("span", undefined, "None"));
+  none.addEventListener("click", () => {
+    selectedAssistantId = undefined;
+    renderAssistantPanel();
   });
-  // also reset on dialog close event (Esc)
-  dialog.addEventListener("close", () => {
-    editingMcpId = null;
-    if (idInput) idInput.disabled = false;
-    transportEl!.disabled = false;
-    setDialogMode("add");
-  });
-
-  form.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    if (errBox) { errBox.textContent = ""; errBox.hidden = true; }
-    const submitBtnEl = document.getElementById("mcp-submit-btn") as HTMLButtonElement | null;
-    if (submitBtnEl) submitBtnEl.disabled = true;
-
-    const isEdit = editingMcpId !== null;
-    const fd = new FormData(form);
-    // id and transport may be disabled in edit mode — fallback to state / direct element
-    const rawId = (fd.get("id") as string | null)?.trim() ?? "";
-    const id = isEdit ? editingMcpId! : rawId;
-    const name = String(fd.get("name") ?? "").trim();
-    // transportEl.value is authoritative even when disabled
-    const transport = (transportEl!.value as "stdio" | "http" | "sse") || (String(fd.get("transport") ?? "stdio") as "stdio" | "http" | "sse");
-    const enabled = String(fd.get("enabled") ?? "true") === "true";
-    const description = String(fd.get("description") ?? "").trim();
-
-    if (!id) {
-      if (errBox) { errBox.textContent = "ID is required."; errBox.hidden = false; }
-      if (submitBtnEl) submitBtnEl.disabled = false;
-      return;
-    }
-
-    const payload: McpAddServerRequest = { id, name, transport, enabled };
-    if (description) payload.description = description;
-    else if (isEdit) payload.description = ""; // allow clearing description on edit
-
-    // Helper to strip placeholder "***" secrets — backend also strips, but do it early for patch clarity
-    function filterPlaceholders(obj?: Record<string, string>): Record<string, string> | undefined {
-      if (!obj) return undefined;
-      const out: Record<string, string> = {};
-      for (const [k, v] of Object.entries(obj)) {
-        if (v === "***") continue;
-        out[k] = v;
+  list.append(none);
+  for (const a of assistants) {
+    const btn = el("button", "side-item") as HTMLButtonElement;
+    btn.type = "button";
+    btn.classList.toggle("selected", a.id === selectedAssistantId);
+    btn.append(el("span", undefined, `${a.emoji ?? ""} ${a.name}`.trim()));
+    btn.append(el("span", "grip", a.model ?? ""));
+    btn.addEventListener("click", () => {
+      selectedAssistantId = a.id;
+      renderAssistantPanel();
+      if (a.model) {
+        selectedModel = a.model;
+        renderModelPanel();
       }
-      return Object.keys(out).length ? out : undefined;
-    }
-
-    if (transport === "stdio") {
-      const command = String(fd.get("command") ?? "").trim();
-      const argsStr = String(fd.get("args") ?? "");
-      const cwd = String(fd.get("cwd") ?? "").trim();
-      const envStr = String(fd.get("env") ?? "");
-      const args = parseArgs(argsStr);
-      const rawEnv = parseEnv(envStr);
-      const env = filterPlaceholders(rawEnv);
-      // basic client validation mirrors server validation but server is source of truth
-      if (!command) {
-        if (errBox) { errBox.textContent = "Command is required for stdio transport."; errBox.hidden = false; }
-        if (submitBtnEl) submitBtnEl.disabled = false;
-        return;
-      }
-      payload.stdio = {
-        command,
-        ...(args ? { args } : {}),
-        ...(env ? { env } : {}),
-        ...(cwd ? { cwd } : {}),
-      };
-      // When editing and env was placeholder-only, omit env to preserve existing
-      if (isEdit && rawEnv && !env) {
-        // rawEnv had only "***" placeholders -> don't send env in patch
-        delete (payload.stdio as Record<string, unknown>).env;
-      }
-    } else {
-      const url = String(fd.get("url") ?? "").trim();
-      const timeoutStr = String(fd.get("timeoutSeconds") ?? "").trim();
-      const headersStr = String(fd.get("headers") ?? "");
-      if (!url) {
-        if (errBox) { errBox.textContent = "URL is required for http/sse transport."; errBox.hidden = false; }
-        if (submitBtnEl) submitBtnEl.disabled = false;
-        return;
-      }
-      const rawHeaders = parseHeaders(headersStr);
-      const headers = filterPlaceholders(rawHeaders);
-      const timeoutSeconds = timeoutStr ? Number(timeoutStr) : undefined;
-      if (timeoutStr && (Number.isNaN(timeoutSeconds) || timeoutSeconds! <= 0 || timeoutSeconds! > 300)) {
-        if (errBox) { errBox.textContent = "Timeout must be 1..300 seconds."; errBox.hidden = false; }
-        if (submitBtnEl) submitBtnEl.disabled = false;
-        return;
-      }
-      const httpPayload: McpAddServerRequest["http"] = {
-        url,
-        ...(headers ? { headers } : {}),
-        ...(timeoutSeconds ? { timeoutSeconds } : {}),
-      };
-      if (transport === "sse") {
-        payload.sse = httpPayload;
-        // keep http for compatibility — server normalizes http/sse
-        payload.http = httpPayload;
-      } else {
-        payload.http = httpPayload;
-      }
-      if (isEdit && rawHeaders && !headers) {
-        if (payload.http) delete payload.http.headers;
-        if (payload.sse) delete payload.sse.headers;
-      }
-    }
-
-    // New servers are not added directly: the user confirms through the OS
-    // native dialog, which cannot be spoofed by page content. Cancelling
-    // leaves the form open, so nothing is persisted or spawned.
-    if (!isEdit) {
-      const summary = buildMcpSummary(payload);
-      const warning =
-        payload.transport === "stdio"
-          ? "This will run the command below on your machine. An MCP server can execute arbitrary code and read your files — only continue if you trust this server."
-          : "This will connect to the URL below and send the configured headers. Only continue if you trust this server.";
-      const ok = await vantailDialog.confirm(`${warning}\n\n${summary}`, {
-        title: "Confirm MCP server",
-        kind: "warning",
-        okLabel: "Add server",
-        cancelLabel: "Cancel",
-      });
-      if (submitBtnEl) submitBtnEl.disabled = false;
-      if (!ok) return;
-      try {
-        await window.api.mcpAddServer(payload);
-        close();
-        await loadMcpServers();
-        return;
-      } catch (err) {
-        const msg = errorText(err);
-        if (errBox) { errBox.textContent = msg; errBox.hidden = false; }
-        return;
-      }
-    }
-
-    try {
-      // PATCH via registry.update — send patch without id (id immutable)
-      const { id: _omit, transport: _tOmit, ...patch } = payload;
-      await window.api.mcpUpdateServer(id, patch);
-      close();
-      await loadMcpServers();
-    } catch (err) {
-      const msg = errorText(err);
-      if (errBox) { errBox.textContent = msg; errBox.hidden = false; }
-    } finally {
-      if (submitBtnEl) submitBtnEl.disabled = false;
-    }
-  });
-}
-
-// ---- Assistant dialog -----------------------------------------------------
-
-function parseStop(input: string): string[] | undefined {
-  const t = input.trim();
-  if (!t) return undefined;
-  const parts = t.includes(",") ? t.split(",") : t.split("\n");
-  const arr = parts.map((s) => s.trim()).filter(Boolean);
-  return arr.length ? arr : undefined;
-}
-
-function parseFloatField(v: string): number | undefined {
-  const t = v.trim();
-  if (!t) return undefined;
-  const n = Number(t);
-  return Number.isFinite(n) ? n : undefined;
-}
-
-function parseIntField(v: string): number | undefined {
-  const t = v.trim();
-  if (!t) return undefined;
-  const n = Number(t);
-  return Number.isInteger(n) ? n : undefined;
-}
-
-function setupAssistantDialog(): void {
-  const dialog = document.getElementById(ASSISTANT_DIALOG_ID) as HTMLDialogElement | null;
-  const addBtn = document.getElementById(ASSISTANT_ADD_BTN_ID) as HTMLButtonElement | null;
-  const closeBtn = document.getElementById(ASSISTANT_DIALOG_CLOSE_ID) as HTMLButtonElement | null;
-  const cancelBtn = document.getElementById(ASSISTANT_CANCEL_BTN_ID) as HTMLButtonElement | null;
-  const form = document.getElementById(ASSISTANT_FORM_ID) as HTMLFormElement | null;
-  const errBox = document.getElementById(ASSISTANT_FORM_ERROR_ID);
-  const dialogTitle = document.getElementById("assistant-dialog-title");
-  const submitBtn = document.getElementById("assistant-submit-btn") as HTMLButtonElement | null;
-  const idInput = document.getElementById("assistant-id") as HTMLInputElement | null;
-  if (!dialog || !addBtn || !form) return;
-
-  function setDialogMode(mode: "add" | "edit"): void {
-    if (dialogTitle) dialogTitle.textContent = mode === "edit" ? "Edit Assistant" : "Add Assistant";
-    if (submitBtn) submitBtn.textContent = mode === "edit" ? "Save changes" : "Add assistant";
+      renderModelButton();
+    });
+    list.append(btn);
   }
-
-  function open(): void {
-    editingAssistantId = null;
-    setDialogMode("add");
-    if (errBox) { errBox.textContent = ""; errBox.hidden = true; }
-    form!.reset();
-    if (idInput) { idInput.disabled = false; idInput.removeAttribute("aria-disabled"); }
-    // ensure advanced details closed on add? keep as is
-    if (typeof dialog!.showModal === "function") dialog!.showModal();
-    else (dialog as unknown as { open: boolean }).open = true;
-  }
-
-  function openForEdit(assistant: AssistantSafe): void {
-    editingAssistantId = assistant.id;
-    setDialogMode("edit");
-    if (errBox) { errBox.textContent = ""; errBox.hidden = true; }
-    form!.reset();
-
-    const idEl = document.getElementById("assistant-id") as HTMLInputElement | null;
-    const nameEl = document.getElementById("assistant-name") as HTMLInputElement | null;
-    const emojiEl = document.getElementById("assistant-emoji") as HTMLInputElement | null;
-    const descEl = document.getElementById("assistant-desc") as HTMLInputElement | null;
-    const instrEl = document.getElementById("assistant-instructions") as HTMLTextAreaElement | null;
-    const enabledEl = document.getElementById("assistant-enabled") as HTMLSelectElement | null;
-    const providerEl = document.getElementById("assistant-providerId") as HTMLInputElement | null;
-    const modelEl = document.getElementById("assistant-model") as HTMLInputElement | null;
-    if (idEl) { idEl.value = assistant.id; idEl.disabled = true; }
-    if (nameEl) nameEl.value = assistant.name;
-    if (emojiEl) emojiEl.value = assistant.emoji ?? "";
-    if (descEl) descEl.value = assistant.description ?? "";
-    if (instrEl) instrEl.value = assistant.instructions ?? "";
-    if (enabledEl) enabledEl.value = assistant.enabled ? "true" : "false";
-    if (providerEl) providerEl.value = assistant.providerId ?? "";
-    if (modelEl) modelEl.value = assistant.model ?? "";
-
-    const p = assistant.parameters ?? {};
-    (document.getElementById("assistant-temperature") as HTMLInputElement | null)!.value = p.temperature !== undefined ? String(p.temperature) : "";
-    (document.getElementById("assistant-topP") as HTMLInputElement | null)!.value = p.topP !== undefined ? String(p.topP) : "";
-    (document.getElementById("assistant-topK") as HTMLInputElement | null)!.value = p.topK !== undefined ? String(p.topK) : "";
-    (document.getElementById("assistant-minP") as HTMLInputElement | null)!.value = p.minP !== undefined ? String(p.minP) : "";
-    (document.getElementById("assistant-frequencyPenalty") as HTMLInputElement | null)!.value = p.frequencyPenalty !== undefined ? String(p.frequencyPenalty) : "";
-    (document.getElementById("assistant-presencePenalty") as HTMLInputElement | null)!.value = p.presencePenalty !== undefined ? String(p.presencePenalty) : "";
-    (document.getElementById("assistant-repeatPenalty") as HTMLInputElement | null)!.value = p.repeatPenalty !== undefined ? String(p.repeatPenalty) : "";
-    (document.getElementById("assistant-maxTokens") as HTMLInputElement | null)!.value = p.maxTokens !== undefined ? String(p.maxTokens) : "";
-    (document.getElementById("assistant-seed") as HTMLInputElement | null)!.value = p.seed !== undefined ? String(p.seed) : "";
-    (document.getElementById("assistant-stop") as HTMLInputElement | null)!.value = p.stop?.join(", ") ?? "";
-
-    if (typeof dialog!.showModal === "function") dialog!.showModal();
-    else (dialog as unknown as { open: boolean }).open = true;
-  }
-
-  openAssistantEdit = openForEdit;
-
-  function close(): void {
-    if (typeof dialog!.close === "function") {
-      try { dialog!.close(); } catch { dialog!.removeAttribute("open"); }
-    } else dialog!.removeAttribute("open");
-    editingAssistantId = null;
-    if (idInput) idInput.disabled = false;
-    setDialogMode("add");
-  }
-
-  addBtn.addEventListener("click", open);
-  closeBtn?.addEventListener("click", close);
-  cancelBtn?.addEventListener("click", close);
-  dialog.addEventListener("click", (e) => {
-    const target = e.target as HTMLElement;
-    if (target === dialog) close();
-  });
-  dialog.addEventListener("close", () => {
-    editingAssistantId = null;
-    if (idInput) idInput.disabled = false;
-    setDialogMode("add");
-  });
-
-  form.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    if (errBox) { errBox.textContent = ""; errBox.hidden = true; }
-    const submitBtnEl = document.getElementById("assistant-submit-btn") as HTMLButtonElement | null;
-    if (submitBtnEl) submitBtnEl.disabled = true;
-
-    const isEdit = editingAssistantId !== null;
-    const fd = new FormData(form);
-    const rawId = (fd.get("id") as string | null)?.trim() ?? "";
-    const id = isEdit ? editingAssistantId! : rawId;
-    const name = String(fd.get("name") ?? "").trim();
-    const emoji = String(fd.get("emoji") ?? "").trim();
-    const description = String(fd.get("description") ?? "").trim();
-    const instructions = String(fd.get("instructions") ?? "").trim();
-    const enabled = String(fd.get("enabled") ?? "true") === "true";
-    const providerId = String(fd.get("providerId") ?? "").trim();
-    const model = String(fd.get("model") ?? "").trim();
-
-    if (!id) {
-      if (errBox) { errBox.textContent = "ID is required."; errBox.hidden = false; }
-      if (submitBtnEl) submitBtnEl.disabled = false;
-      return;
-    }
-    if (!name) {
-      if (errBox) { errBox.textContent = "Name is required."; errBox.hidden = false; }
-      if (submitBtnEl) submitBtnEl.disabled = false;
-      return;
-    }
-    if (!instructions) {
-      if (errBox) { errBox.textContent = "Instructions are required."; errBox.hidden = false; }
-      if (submitBtnEl) submitBtnEl.disabled = false;
-      return;
-    }
-
-    // Build parameters — only include if user provided value
-    const params: AssistantParametersWire = {};
-    const tempRaw = String(fd.get("temperature") ?? "").trim();
-    const topPRaw = String(fd.get("topP") ?? "").trim();
-    const topKRaw = String(fd.get("topK") ?? "").trim();
-    const minPRaw = String(fd.get("minP") ?? "").trim();
-    const freqRaw = String(fd.get("frequencyPenalty") ?? "").trim();
-    const presRaw = String(fd.get("presencePenalty") ?? "").trim();
-    const repeatRaw = String(fd.get("repeatPenalty") ?? "").trim();
-    const maxTokensRaw = String(fd.get("maxTokens") ?? "").trim();
-    const seedRaw = String(fd.get("seed") ?? "").trim();
-    const stopRaw = String(fd.get("stop") ?? "");
-
-    if (tempRaw) {
-      const v = parseFloatField(tempRaw);
-      if (v === undefined || v < 0 || v > 2) {
-        if (errBox) { errBox.textContent = "Temperature must be 0..2."; errBox.hidden = false; }
-        if (submitBtnEl) submitBtnEl.disabled = false;
-        return;
-      }
-      params.temperature = v;
-    }
-    if (topPRaw) {
-      const v = parseFloatField(topPRaw);
-      if (v === undefined || v < 0 || v > 1) {
-        if (errBox) { errBox.textContent = "Top P must be 0..1."; errBox.hidden = false; }
-        if (submitBtnEl) submitBtnEl.disabled = false;
-        return;
-      }
-      params.topP = v;
-    }
-    if (topKRaw) {
-      const v = parseIntField(topKRaw);
-      if (v === undefined || v < 0 || v > 100) {
-        if (errBox) { errBox.textContent = "Top K must be integer 0..100."; errBox.hidden = false; }
-        if (submitBtnEl) submitBtnEl.disabled = false;
-        return;
-      }
-      params.topK = v;
-    }
-    if (minPRaw) {
-      const v = parseFloatField(minPRaw);
-      if (v === undefined || v < 0 || v > 1) {
-        if (errBox) { errBox.textContent = "Min P must be 0..1."; errBox.hidden = false; }
-        if (submitBtnEl) submitBtnEl.disabled = false;
-        return;
-      }
-      params.minP = v;
-    }
-    if (freqRaw) {
-      const v = parseFloatField(freqRaw);
-      if (v === undefined || v < -2 || v > 2) {
-        if (errBox) { errBox.textContent = "Frequency penalty must be -2..2."; errBox.hidden = false; }
-        if (submitBtnEl) submitBtnEl.disabled = false;
-        return;
-      }
-      params.frequencyPenalty = v;
-    }
-    if (presRaw) {
-      const v = parseFloatField(presRaw);
-      if (v === undefined || v < -2 || v > 2) {
-        if (errBox) { errBox.textContent = "Presence penalty must be -2..2."; errBox.hidden = false; }
-        if (submitBtnEl) submitBtnEl.disabled = false;
-        return;
-      }
-      params.presencePenalty = v;
-    }
-    if (repeatRaw) {
-      const v = parseFloatField(repeatRaw);
-      if (v === undefined || v < 0 || v > 2) {
-        if (errBox) { errBox.textContent = "Repeat penalty must be 0..2."; errBox.hidden = false; }
-        if (submitBtnEl) submitBtnEl.disabled = false;
-        return;
-      }
-      params.repeatPenalty = v;
-    }
-    if (maxTokensRaw) {
-      const v = parseIntField(maxTokensRaw);
-      if (v === undefined || v <= 0 || v > 200_000) {
-        if (errBox) { errBox.textContent = "Max tokens must be 1..200000."; errBox.hidden = false; }
-        if (submitBtnEl) submitBtnEl.disabled = false;
-        return;
-      }
-      params.maxTokens = v;
-    }
-    if (seedRaw) {
-      const v = parseIntField(seedRaw);
-      if (v === undefined || v < 0 || v > 2147483647) {
-        if (errBox) { errBox.textContent = "Seed must be 0..2147483647."; errBox.hidden = false; }
-        if (submitBtnEl) submitBtnEl.disabled = false;
-        return;
-      }
-      params.seed = v;
-    }
-    const stop = parseStop(stopRaw);
-    if (stop) params.stop = stop;
-
-    const payload: AssistantAddRequest = {
-      id,
-      name,
-      instructions,
-      enabled,
-    };
-    if (description) payload.description = description;
-    else if (isEdit) payload.description = "";
-    if (emoji) payload.emoji = emoji;
-    else if (isEdit) payload.emoji = "";
-    if (providerId) payload.providerId = providerId;
-    else if (isEdit) payload.providerId = "";
-    if (model) payload.model = model;
-    else if (isEdit) payload.model = "";
-    if (Object.keys(params).length > 0) payload.parameters = params;
-    else if (isEdit) {
-      // For edit, if user cleared all params fields, we should not send parameters at all
-      // to preserve existing — or if they explicitly cleared, send empty? Keep no-op for now.
-    }
-
-    try {
-      if (isEdit) {
-        const { id: _omit, ...patch } = payload;
-        // For edit, we patch — id immutable. Ensure we send patch with possibly empty strings for clearing.
-        // If parameters were omitted and existing has parameters, they will be preserved via merge.
-        // To allow clearing individual params, user would need to re-specify params without that key — merge will preserve old key.
-        // For full replace, we could send parameters as provided only.
-        await window.api.assistantUpdate(id, patch);
-      } else {
-        await window.api.assistantAdd(payload);
-      }
-      close();
-      await loadAssistants();
-    } catch (err) {
-      const msg = errorText(err);
-      if (errBox) { errBox.textContent = msg; errBox.hidden = false; }
-    } finally {
-      if (submitBtnEl) submitBtnEl.disabled = false;
-    }
-  });
 }
 
-/**
- * Make the custom title bar draggable. With a hidden title bar there's no
- * native drag region, so the window is moved programmatically: on a left-click
- * `pointerdown` in the bar (not on the buttons inside it) we hand the drag to
- * the platform. `-webkit-app-region: drag` is a Chromium extension that does
- * nothing in a WKWebView, which is why this is a call and not a CSS property.
- */
+function renderModelButton(): void {
+  const label = $("composer-model-label");
+  label.textContent = selectedModel ?? "Choose model";
+}
+
+// ---- Model menu popover ---------------------------------------------------
+
+function openModelMenu(anchor: HTMLElement): void {
+  closeModelMenu();
+  const menu = $<HTMLDivElement>("model-menu");
+  menu.replaceChildren();
+  for (const m of models) {
+    const item = el("button", "menu-item") as HTMLButtonElement;
+    item.type = "button";
+    item.classList.toggle("selected", m.id === selectedModel);
+    item.append(el("span", undefined, m.name));
+    item.addEventListener("click", () => {
+      selectedModel = m.id;
+      renderModelButton();
+      renderModelPanel();
+      closeModelMenu();
+    });
+    menu.append(item);
+  }
+  if (models.length === 0) {
+    menu.append(el("button", "menu-item", "No models installed") as HTMLButtonElement);
+  }
+  menu.hidden = false;
+  const rect = anchor.getBoundingClientRect();
+  menu.style.top = `${rect.bottom + 6}px`;
+  menu.style.left = `${Math.max(8, rect.right - menu.offsetWidth)}px`;
+}
+
+function closeModelMenu(): void {
+  $<HTMLDivElement>("model-menu").hidden = true;
+}
+
+// ---- Title bar (drag + double-click to zoom) -------------------------------
+
 function setupTitleBar(): void {
-  const bar = document.getElementById(TITLEBAR_ID);
+  const bar = document.getElementById("titlebar");
   if (!bar) return;
   bar.addEventListener("pointerdown", (event) => {
-    // Let buttons and inputs be clicked rather than dragged.
     if ((event.target as Element).closest("button, input, a, select, textarea")) return;
     if (event.buttons === 1) void appWindow.startDragging();
   });
-  // A hidden title bar has no native double-click-to-zoom — macOS only does
-  // that for the real title bar and the green traffic-light button. So we
-  // hand it ourselves: double-click anything draggable in the bar to toggle
-  // maximized. Nothing to do on a double-click over a button/input.
   bar.addEventListener("dblclick", (event) => {
     if ((event.target as Element).closest("button, input, a, select, textarea")) return;
     void appWindow.toggleMaximize();
   });
 }
 
+// ---- init -----------------------------------------------------------------
+
 async function init(): Promise<void> {
   setupTitleBar();
 
-  const content = document.getElementById(CONTENT_ID);
-  if (!content) return;
-
-  // If API is unavailable (opened without preload), show a clear message.
-  if (!window.api?.aiListProviders) {
-    content.replaceChildren(
-      el("p", "load-error", "The connection status page is unavailable because the app's preload API could not be loaded. Please relaunch the application."),
-    );
-    return;
-  }
-
   try {
-    const providers = await window.api.aiListProviders();
-    if (providers.length === 0) {
-      content.replaceChildren(el("p", "load-error", "No AI providers are configured. Add a provider (such as Ollama) to see its connection status here."));
-    } else {
-      cards = providers.map(createProviderCard);
-      renderContent();
-    }
+    await Promise.all([loadModels(), loadAssistants()]);
   } catch (e) {
-    content.replaceChildren(el("p", "load-error", `Failed to load providers: ${errorText(e)}`));
+    console.error("init failed:", errorText(e));
   }
 
-  document
-    .getElementById(REFRESH_BTN_ID)
-    ?.addEventListener("click", () => void refreshAll(true));
+  const input = $<HTMLTextAreaElement>("chat-input");
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      void sendMessage();
+    }
+  });
+  input.addEventListener("input", () => {
+    input.style.height = "auto";
+    input.style.height = `${Math.min(input.scrollHeight, 120)}px`;
+  });
+  $<HTMLButtonElement>("composer-send").addEventListener("click", () => void sendMessage());
+  $<HTMLButtonElement>("composer-model").addEventListener("click", (e) => {
+    openModelMenu(e.currentTarget as HTMLElement);
+  });
+  $<HTMLButtonElement>("sidebar-toggle-btn").addEventListener("click", () => {
+    $<HTMLElement>("side-panel").classList.toggle("collapsed");
+  });
+  $<HTMLButtonElement>("new-chat-btn").addEventListener("click", () => {
+    setView(false);
+  });
+  document.addEventListener("click", (e) => {
+    const target = e.target as Node;
+    if (!$<HTMLElement>("model-menu").contains(target) && !$<HTMLElement>("composer-model").contains(target)) {
+      closeModelMenu();
+    }
+  });
 
-  // Auto-refresh health on a timer; models refresh on an explicit "Check now".
-  setInterval(() => {
-    void refreshAllHealth();
-  }, REFRESH_INTERVAL_MS);
-
-  if (cards.length > 0) await refreshAll(true);
-
-  // Keep the "seconds ago" label ticking every second.
-  setInterval(updateLastCheck, 1000);
-
-  // ---- MCP init (independent of AI providers) ----
-  document.getElementById(MCP_REFRESH_BTN_ID)?.addEventListener("click", () => void refreshAllMcp(true));
-  setupMcpDialog();
-  await loadMcpServers();
-  setInterval(() => {
-    void refreshAllMcpHealth();
-  }, REFRESH_INTERVAL_MS);
-  setInterval(updateMcpLastCheck, 1000);
-
-  // ---- Assistant init (independent) ----
-  document.getElementById(ASSISTANT_REFRESH_BTN_ID)?.addEventListener("click", () => void refreshAssistants(true));
-  setupAssistantDialog();
-  await loadAssistants();
-  setInterval(updateAssistantLastCheck, 1000);
+  setSendEnabled(true);
 }
 
 if (document.readyState === "loading") {

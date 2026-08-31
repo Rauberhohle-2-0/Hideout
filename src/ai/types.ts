@@ -15,11 +15,29 @@ export interface AiMessage {
   /** Optional tool call id / name — future-proof */
   toolCallId?: string;
   name?: string;
+  /** Function-call results requested by the model (role "assistant"). */
+  toolCalls?: AiToolCall[];
+}
+
+export interface AiTool {
+  /** Tool name the model calls — unique across the request. */
+  name: string;
+  description?: string;
+  /** JSON Schema for the tool's arguments. */
+  parameters?: Record<string, unknown>;
+}
+
+export interface AiToolCall {
+  id?: string;
+  name: string;
+  arguments: Record<string, unknown>;
 }
 
 export interface AiChatOptions {
   /** Model id — if omitted provider uses its default */
   model?: string;
+  /** Function-calling tools to offer the model. */
+  tools?: AiTool[];
   temperature?: number;
   maxTokens?: number;
   topP?: number;
@@ -42,6 +60,8 @@ export interface AiChatResponse {
   created: number;
   content: string;
   finishReason: "stop" | "length" | "tool_calls" | "error" | "unknown";
+  /** Tool calls the model requested; present when finishReason === "tool_calls". */
+  toolCalls?: AiToolCall[];
   usage?: {
     promptTokens?: number;
     completionTokens?: number;
@@ -55,6 +75,8 @@ export interface AiChatChunk {
   delta: string;
   done: boolean;
   finishReason?: AiChatResponse["finishReason"];
+  /** Tool calls the model requested (sent on the final chunk when applicable). */
+  toolCalls?: AiToolCall[];
 }
 
 export interface AiModel {

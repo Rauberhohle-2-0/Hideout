@@ -21,6 +21,8 @@ import type {
   Api,
   AssistantAddRequest,
   AssistantSafe,
+  ChatStreamEvent,
+  ChatStreamHandlers,
   McpAddServerRequest,
   McpServerSafe,
   McpServerStatus,
@@ -44,6 +46,45 @@ function messageFor(status: number, body: unknown): string {
     return err.code ? `${err.code}: ${err.error}` : err.error;
   }
   return `Request failed with status ${status}`;
+}
+
+/** Parse one SSE block (multiple `name: value` lines) into a ChatStreamEvent. */
+function parseSseBlock(block: string): ChatStreamEvent | undefined {
+  let eventType = "";
+  const dataLines: string[] = [];
+  for (const line of block.split("\n")) {
+    if (!line) continue;
+    if (line.startsWith("event:")) eventType = line.slice(6).trim();
+    else if (line.startsWith("data:")) dataLines.push(line.slice(5).trim());
+  }
+  const data = dataLines.join("\n");
+  if (!data) return undefined;
+  let payload: unknown;
+  try {
+    payload = JSON.parse(data);
+  } catch {
+    return undefined;
+  }
+  const obj = payload as Record<string, unknown>;
+  const type = obj.type ?? eventType;
+  switch (type) {
+    case "delta":
+      return { type: "delta", delta: String(obj.delta ?? ""), model: String(obj.model ?? "") };
+    case "tool_start":
+      return {
+        type: "tool_start",
+        tool: String(obj.tool ?? ""),
+        args: (obj.args ?? {}) as Record<string, unknown>,
+      };
+    case "tool_end":
+      return { type: "tool_end", tool: String(obj.tool ?? ""), ok: Boolean(obj.ok), result: String(obj.result ?? "") };
+    case "done":
+      return { type: "done", model: String(obj.model ?? ""), finishReason: String(obj.finishReason ?? "stop") };
+    case "error":
+      return { type: "error", error: String(obj.error ?? "Unknown error"), code: obj.code as string | undefined };
+    default:
+      return undefined;
+  }
 }
 
 export function createApiClient(connection: SidecarConnection): Api {
@@ -119,6 +160,44 @@ export function createApiClient(connection: SidecarConnection): Api {
 
     async aiChat(req: AiChatIpcRequest): Promise<AiChatIpcResponse> {
       return call<AiChatIpcResponse>("POST", "/api/ai/chat", { body: req });
+    },
+
+    // ---- Streaming chat (SSE over the agent tool-loop) ----
+    async aiChatStream(req: AiChatIpcRequest, handlers: ChatStreamHandlers): Promise<void> {
+      const stream = await network.stream({
+        url: `${baseUrl}/api/ai/chat/stream`,
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${token}`,
+          "content-type": "application/json",
+          accept: "text/event-stream",
+        },
+        body: JSON.stringify(req),
+      });
+
+      // SSE framing: events are separated by blank lines; each field is a line
+      // `name: value`. Chunks may split lines, so buffer until a `\n\n`.
+      let buffer = "";
+      const offChunk = stream.onChunk((chunk) => {
+        buffer += chunk;
+        let sep: number;
+        while ((sep = buffer.indexOf("\n\n")) !== -1) {
+          const block = buffer.slice(0, sep);
+          buffer = buffer.slice(sep + 2);
+          const event = parseSseBlock(block);
+          if (event) handlers.onEvent(event);
+        }
+      });
+      const offEnd = stream.onEnd(({ error }) => {
+        // Flush any trailing block that lacked a closing blank line.
+        if (buffer.trim()) {
+          const event = parseSseBlock(buffer);
+          if (event) handlers.onEvent(event);
+        }
+        offChunk();
+        offEnd();
+        handlers.onEnd(error);
+      });
     },
 
     // ---- MCP ----
