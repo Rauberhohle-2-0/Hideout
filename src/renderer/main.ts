@@ -11,6 +11,11 @@ import "htmx.org";
 import { appWindow, os, titleBarMetrics } from "@vantail/api";
 import { DEFAULT_NAME, WHO_SELECTOR } from "../shared/constants.ts";
 
+// How far the macOS traffic lights settle below the bar's vertical centre, so
+// the sidebar's toggle can sit on the very same row. One source of truth for
+// both `setTrafficLightPosition` and the button alignment below.
+const TITLEBAR_CONTROLS_PUSH = 6;
+
 // Trimmed, non-empty, and never used mid-tag - just a friendly name.
 function usernameOf(home: string): string {
   const cleaned = home.replace(/[\\/]+$/, "").split(/[\\/]/).pop() ?? "";
@@ -56,9 +61,8 @@ function wireTitleBar(): void {
   });
 
   const { height = 36, buttonHeight = 14 } = titleBarMetrics() ?? {};
-  // Keep a generous amount of space above the lights, a little more than a
-  // plain centre, and breathe off the leading edge too.
-  const y = Math.round(height / 2 - buttonHeight / 2 + 6);
+  // Settle the lights a little below centre, and breathe off the leading edge.
+  const y = Math.round(height / 2 - buttonHeight / 2 + TITLEBAR_CONTROLS_PUSH);
   void appWindow?.setTrafficLightPosition(20, y);
 }
 
@@ -71,9 +75,23 @@ wireTitleBar();
  * and one in the right-pane title bar (visible only while closed, so it stays
  * reachable once the sidebar has shrunk away).
  */
-function setSidebarCollapsed(collapsed: boolean): void {
+function setSidebarCollapsed(collapsed: boolean, animating: boolean = true): void {
   if (!sidebar) return;
-  sidebar.classList.toggle("collapsed", collapsed);
+  if (collapsed) {
+    // Hide the toggle the moment collapsing starts, before the width animation
+    // squishes it; the width transition then finishes the collapse.
+    sidebar.classList.add("collapsing");
+    sidebar.classList.add("collapsed");
+  } else if (animating) {
+    // Keep it hidden while the sidebar grows back; a width transitionend
+    // (below) reveals it again.
+    sidebar.classList.add("collapsing");
+    sidebar.classList.remove("collapsed");
+  } else {
+    // No animation (e.g. a manual resize drag): reveal straight away.
+    sidebar.classList.remove("collapsing");
+    sidebar.classList.remove("collapsed");
+  }
   for (const toggle of sidebarToggles) {
     toggle.setAttribute("aria-expanded", String(!collapsed));
   }
@@ -96,6 +114,18 @@ const titleBarToggle = document.querySelector<HTMLButtonElement>("#sidebar-toggl
 
 if (sidebar) {
   wireSidebarToggle();
+
+  // Reveal the sidebar's toggle once the collapse/expand width animation ends.
+  sidebar.addEventListener("transitionend", (event) => {
+    if (event.propertyName === "width") sidebar.classList.remove("collapsing");
+  });
+
+  // Sit every toggle (the in-sidebar one and the collapsed title-bar one) on
+  // the exact same row as the macOS traffic lights, which settle
+  // TITLEBAR_CONTROLS_PUSH below the centre of the bar.
+  for (const toggle of sidebarToggles) {
+    toggle.style.transform = `translateY(${TITLEBAR_CONTROLS_PUSH}px)`;
+  }
 }
 
 /**
@@ -113,7 +143,7 @@ function wireSidebarResize(): void {
   const minWidth = 160;
   handle.addEventListener("pointerdown", (event) => {
     sidebar.classList.add("dragging");
-    setSidebarCollapsed(false); // a drag resizes it open
+    setSidebarCollapsed(false, false); // a drag resizes it open, no hiding
     handle.setPointerCapture(event.pointerId);
     event.preventDefault();
   });

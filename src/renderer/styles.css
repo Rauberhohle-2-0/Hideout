@@ -50,3 +50,10 @@
   opacity: 0;
   pointer-events: none;
 }
+
+/* Keep the sidebar's own toggle hidden for the whole collapse/expand width
+   animation, so it never shows squished while the sidebar resizes. */
+#sidebar.collapsing [data-sidebar-toggle] {
+  opacity: 0;
+  pointer-events: none;
+}
