@@ -9,18 +9,18 @@
  */
 import 'htmx.org'
 import { appWindow, os, titleBarMetrics } from '@vantail/api'
-import { createIcons, Moon, PanelLeft, Search, Sun, X } from 'lucide'
+import { ChevronDown, createIcons, Moon, PanelLeft, Search, Sun, X } from 'lucide'
 import { DEFAULT_NAME, WHO_SELECTOR } from '../shared/constants.ts'
 
 // Hydrate the Lucide icons declared as `<i data-lucide="…">` in index.html.
 // The runtime swaps each placeholder for its SVG, keeping the element's own
 // class and data-* attributes (e.g. `data-theme-icon`, `hidden`).
-createIcons({ icons: { Moon, PanelLeft, Search, Sun, X } })
+createIcons({ icons: { ChevronDown, Moon, PanelLeft, Search, Sun, X } })
 
 // How far the macOS traffic lights settle below the bar's vertical centre, so
 // the sidebar's toggle can sit on the very same row. One source of truth for
 // both `setTrafficLightPosition` and the button alignment below.
-const TITLEBAR_CONTROLS_PUSH = 15
+const TITLEBAR_CONTROLS_PUSH = 18
 
 // Trimmed, non-empty, and never used mid-tag - just a friendly name.
 function usernameOf(home: string): string {
@@ -75,19 +75,20 @@ function wireTitleBar(): void {
   const y = Math.round(height / 2 - buttonHeight / 2 + TITLEBAR_CONTROLS_PUSH)
   void appWindow?.setTrafficLightPosition(20, y)
 
-  // Park the right-side controls on the very same row as the traffic lights:
-  // the header aligns them to its top (items-start), so pushing the group
-  // down by this margin drops its vertical centre exactly onto the lights'.
-  const controls = document.querySelector<HTMLElement>('#titlebar-controls')
-  if (controls) {
-    const lightsCenter = height / 2 + TITLEBAR_CONTROLS_PUSH
-    const top = Math.max(0, Math.round(lightsCenter - controls.offsetHeight / 2))
-    controls.style.marginTop = `${top}px`
+  // Park every title-bar row (the model selector and the right-side controls)
+  // on the very same row as the traffic lights: the header aligns them to its
+  // top (items-start), so pushing each down by this margin drops its vertical
+  // centre exactly onto the lights'.
+  const lightsCenter = height / 2 + TITLEBAR_CONTROLS_PUSH
+  for (const row of document.querySelectorAll<HTMLElement>('[data-titlebar-row]')) {
+    const top = Math.max(0, Math.round(lightsCenter - row.offsetHeight / 2))
+    row.style.marginTop = `${top}px`
   }
 }
 
 wireTitleBar()
 wireTitleBarSearch()
+wireModelSelector()
 
 /**
  * Expand/collapse the title-bar search. Clicking the (closed) circle slides it
@@ -138,6 +139,39 @@ function wireTitleBarSearch(): void {
       collapse()
       field.blur()
     }
+  })
+}
+
+/**
+ * The model-selector dropdown in the title bar. Clicking the pill toggles the
+ * (empty, for now) menu beneath it; clicking anywhere else or pressing Escape
+ * closes it. Pointer-down is stopped so the header's drag-to-move doesn't
+ * fight the click.
+ */
+function wireModelSelector(): void {
+  const selector = document.querySelector<HTMLElement>('#model-selector')
+  const toggle = document.querySelector<HTMLButtonElement>('#model-selector-toggle')
+  const menu = document.querySelector<HTMLElement>('#model-dropdown')
+  const chevron = document.querySelector<HTMLElement>('#model-selector-chevron')
+  if (!selector || !toggle || !menu || !chevron) return
+
+  selector.addEventListener('pointerdown', (event) => event.stopPropagation())
+
+  const setOpen = (open: boolean) => {
+    toggle.setAttribute('aria-expanded', String(open))
+    menu.hidden = !open
+    chevron.classList.toggle('rotate-180', open)
+  }
+
+  toggle.addEventListener('click', () => setOpen(Boolean(menu.hidden)))
+
+  // Close when a click lands anywhere outside the selector (the header's
+  // drag-to-move pointerdown never reaches here - it was stopped above).
+  document.addEventListener('pointerdown', (event) => {
+    if (!selector.contains(event.target as Node)) setOpen(false)
+  })
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') setOpen(false)
   })
 }
 

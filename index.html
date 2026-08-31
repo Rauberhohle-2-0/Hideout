@@ -24,11 +24,33 @@
       <!-- Custom title bar. A drag region (wired in src/renderer/main.ts via
            startDragging) that overlays the content on the right pane only. -->
       <header data-drag class="flex h-[var(--vantail-titlebar-height,36px)] shrink-0 select-none items-start" style="padding-left: 0.5rem; padding-right: 1.25rem">
+        <!-- Model selector: a dropdown in the same glass style as the
+             right-side controls, parked on the same traffic-light row.
+             The menu is empty for now - no dummy data. -->
+        <div id="model-selector" data-titlebar-row class="relative flex h-[40px] items-center">
+          <button
+            id="model-selector-toggle"
+            type="button"
+            aria-haspopup="listbox"
+            aria-expanded="false"
+            class="titlebar-group flex h-[40px] cursor-pointer items-center gap-2 rounded-full border border-line/70 bg-card/80 px-4 text-sm text-dim backdrop-blur-md transition-colors duration-150 hover:bg-black/10 hover:text-ink active:bg-black/15 dark:hover:bg-white/10 dark:hover:text-ink dark:active:bg-white/15"
+          >
+            Models
+            <i id="model-selector-chevron" class="size-4 transition-transform duration-150" data-lucide="chevron-down"></i>
+          </button>
+          <div
+            id="model-dropdown"
+            role="listbox"
+            aria-label="Models"
+            class="glass-pane absolute left-0 top-[calc(100%+0.5rem)] z-50 w-64 rounded-xl border border-line/70 px-12 py-2 shadow-2xl"
+            hidden
+          ></div>
+        </div>
         <!-- The theme + collapse buttons and the search button live here on
              the right of the title bar in both sidebar states (chrome in
              .titlebar-group, styles.css), so the window controls are always
              reachable from the same place. -->
-        <div id="titlebar-controls" class="ml-auto flex items-center gap-1.5">
+        <div id="titlebar-controls" data-titlebar-row class="ml-auto flex items-center gap-1.5">
           <div class="titlebar-group flex h-[40px] items-center rounded-full border border-line/70 bg-card/80 px-1.5 backdrop-blur-md">
             <button
               data-theme-toggle
