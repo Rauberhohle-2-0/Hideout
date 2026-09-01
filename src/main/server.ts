@@ -16,17 +16,17 @@ import {
   TIP_ROUTE,
 } from "../shared/constants.ts";
 import { greeting, tip } from "./views.ts";
-import { OllamaProvider } from "../providers/ollama.ts";
-import { OpenAIProvider } from "../providers/openai.ts";
-import { AnthropicProvider } from "../providers/anthropic.ts";
-import { ProviderRegistry, providerRegistry } from "../providers/registry.ts";
-import type { Provider } from "../providers/types.ts";
+import { OllamaProvider } from "../providers/implementations/ollama.ts";
+import { OpenAIProvider } from "../providers/implementations/openai.ts";
+import { AnthropicProvider } from "../providers/implementations/anthropic.ts";
+import { ProviderRegistry, providerRegistry } from "../providers/core/registry.ts";
+import type { Provider } from "../providers/core/types.ts";
 import {
   type CredentialStore,
   MemoryCredentialStore,
   createDefaultCredentialStore,
   maskApiKey,
-} from "../providers/credentials.ts";
+} from "../providers/core/credentials.ts";
 
 export type CreateAppOptions = {
   /** Override the registry (useful for tests). */

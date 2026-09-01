@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { createApp } from "../src/main/server.ts";
-import { MemoryCredentialStore, maskApiKey } from "../src/providers/credentials.ts";
-import { ProviderRegistry } from "../src/providers/registry.ts";
-import { OllamaProvider } from "../src/providers/ollama.ts";
-import { OpenAIProvider } from "../src/providers/openai.ts";
-import { AnthropicProvider } from "../src/providers/anthropic.ts";
+import { MemoryCredentialStore, maskApiKey } from "../src/providers/core/credentials.ts";
+import { ProviderRegistry } from "../src/providers/core/registry.ts";
+import { OllamaProvider } from "../src/providers/implementations/ollama.ts";
+import { OpenAIProvider } from "../src/providers/implementations/openai.ts";
+import { AnthropicProvider } from "../src/providers/implementations/anthropic.ts";
 
 function mockFetchFor(models: { openai?: string[]; anthropic?: string[] }): typeof fetch {
   // `typeof fetch` in Bun carries extra members (e.g. `preconnect`); the mock

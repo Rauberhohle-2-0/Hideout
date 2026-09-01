@@ -12,10 +12,10 @@
  * API: `GET https://api.anthropic.com/v1/models` with headers
  * `x-api-key` and `anthropic-version`. Env fallback: `ANTHROPIC_API_KEY`.
  */
-import { BaseProvider } from "./base.ts";
-import type { Model } from "./types.ts";
-import type { CredentialStore } from "./credentials.ts";
-import { createDefaultCredentialStore } from "./credentials.ts";
+import { BaseProvider } from "../core/base.ts";
+import type { Model } from "../core/types.ts";
+import type { CredentialStore } from "../core/credentials.ts";
+import { createDefaultCredentialStore } from "../core/credentials.ts";
 
 export type AnthropicOptions = {
   credentialStore?: CredentialStore;

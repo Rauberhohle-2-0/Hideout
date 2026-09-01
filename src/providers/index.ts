@@ -16,12 +16,12 @@
  *   }
  *   providerRegistry.register(new MyProvider());
  */
-export type { Model, Provider, ProviderInfo, ProviderStatus } from "./types.ts";
-export { BaseProvider } from "./base.ts";
-export { ProviderRegistry, providerRegistry } from "./registry.ts";
-export { OllamaProvider, type OllamaOptions } from "./ollama.ts";
-export { OpenAIProvider, type OpenAIOptions } from "./openai.ts";
-export { AnthropicProvider, ClaudeProvider, type AnthropicOptions, type ClaudeOptions } from "./anthropic.ts";
+export type { Model, Provider, ProviderInfo, ProviderStatus } from "./core/types.ts";
+export { BaseProvider } from "./core/base.ts";
+export { ProviderRegistry, providerRegistry } from "./core/registry.ts";
+export { OllamaProvider, type OllamaOptions } from "./implementations/ollama.ts";
+export { OpenAIProvider, type OpenAIOptions } from "./implementations/openai.ts";
+export { AnthropicProvider, ClaudeProvider, type AnthropicOptions, type ClaudeOptions } from "./implementations/anthropic.ts";
 export {
   APP_SERVICE,
   BunCredentialStore,
@@ -32,4 +32,4 @@ export {
   maskApiKey,
   redact,
   type CredentialStore,
-} from "./credentials.ts";
+} from "./core/credentials.ts";

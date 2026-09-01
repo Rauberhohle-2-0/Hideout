@@ -13,10 +13,10 @@
  * Env fallback: `OPENAI_API_KEY` is checked only when the keychain has
  * nothing — useful for CI, but the keychain is the source of truth.
  */
-import { BaseProvider } from "./base.ts";
-import type { Model } from "./types.ts";
-import type { CredentialStore } from "./credentials.ts";
-import { createDefaultCredentialStore } from "./credentials.ts";
+import { BaseProvider } from "../core/base.ts";
+import type { Model } from "../core/types.ts";
+import type { CredentialStore } from "../core/credentials.ts";
+import { createDefaultCredentialStore } from "../core/credentials.ts";
 
 export type OpenAIOptions = {
   credentialStore?: CredentialStore;

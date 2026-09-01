@@ -99,7 +99,7 @@ export async function deleteCredential(providerId: string): Promise<{ deleted: b
  * Direct keychain access (alternative, requires `permissions.secrets: true`):
  *
  * ```ts
- * import { VantailCredentialStore } from "../providers/credentials.ts";
+ * import { VantailCredentialStore } from "../providers/core/credentials.ts";
  * const store = new VantailCredentialStore();
  * await store.set("openai", key); // writes via @vantail/api secrets
  * const has = await store.has("openai");

@@ -13,8 +13,8 @@
  *
  * A custom `fetch` can be injected for tests or non-standard runtimes.
  */
-import { BaseProvider } from "./base.ts";
-import type { Model } from "./types.ts";
+import { BaseProvider } from "../core/base.ts";
+import type { Model } from "../core/types.ts";
 
 export type OllamaOptions = {
   /** Base URL without trailing slash, e.g. `http://127.0.0.1:11434`. */
