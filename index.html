@@ -7,15 +7,36 @@
     <link rel="stylesheet" href="/src/renderer/styles.css" />
     <script type="module" src="/src/renderer/main.ts"></script>
   </head>
-  <body class="flex h-screen antialiased">
+  <body class="flex h-screen antialiased sidebar-collapsed">
     <!-- Left sidebar shell, full height so it reaches the top edge and sits
          over the title-bar area on the leading side (the traffic lights float
          above it). Empty for now; width is user-resizable from the edge and
          animated on collapse. -->
-    <aside id="sidebar" class="glass-pane h-full shrink-0 overflow-hidden border-r border-line/60 transition-[width] duration-200 ease-out">
-      <!-- Empty shell for now. All window controls live in the title-bar
-           group on the right (#titlebar-controls), which stays visible in
-           both states. -->
+    <!-- Starts collapsed: opt-in space the user opens via the toggle in the
+         title bar or by dragging the resize handle. -->
+    <aside id="sidebar" class="collapsed glass-pane h-full shrink-0 overflow-hidden border-r border-line/60 transition-[width] duration-200 ease-out">
+      <div class="flex h-full w-full min-w-0 flex-col">
+        <!-- Session lists: scrollable region. Two groups, pinned on top,
+             then normal chats. Both rendered by src/renderer/main.ts from
+             the sessionStore; search filters both. The top padding clears
+             the macOS traffic lights, which float over the sidebar's
+             leading edge (same --vantail-titlebar-height the model
+             selector accounts for). -->
+        <div id="sidebar-scroll" class="min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 pb-2 pt-[calc(var(--vantail-titlebar-height,36px)+0.75rem)]">
+          <section id="pinned-section" class="mb-6" aria-label="Pinned chats">
+            <h2 class="sidebar-heading">Pinned</h2>
+            <div id="pinned-list" class="sidebar-list"></div>
+            <p id="pinned-empty" class="px-3 py-1.5 text-xs text-dim/70" hidden>No pinned chats</p>
+          </section>
+          <section id="chats-section" aria-label="Chats">
+            <h2 class="sidebar-heading">Chats</h2>
+            <div id="chats-list" class="sidebar-list"></div>
+            <p id="chats-empty" class="px-3 py-1.5 text-xs text-dim/70" hidden>No chats yet</p>
+          </section>
+          <p id="sidebar-empty" class="px-3 py-6 text-center text-sm text-dim/70" hidden>No chats yet — start a conversation and it will appear here.</p>
+          <p id="sidebar-no-results" class="px-3 py-6 text-center text-sm text-dim/70" hidden>No matches</p>
+        </div>
+      </div>
     </aside>
     <!-- Drag handle between the sidebar and the content; resizes the sidebar. -->
     <div id="sidebar-resizer" aria-hidden="true" class="w-1.5 shrink-0 cursor-col-resize select-none bg-transparent transition-colors hover:bg-accent/30 active:bg-accent/50"></div>
@@ -73,7 +94,7 @@
               data-sidebar-toggle
               type="button"
               aria-label="Toggle sidebar"
-              aria-expanded="true"
+              aria-expanded="false"
               class="grid size-8 place-items-center rounded-full text-dim transition-colors duration-150 hover:bg-black/10 hover:text-ink active:bg-black/15 dark:hover:bg-white/10 dark:hover:text-ink dark:active:bg-white/15"
             >
               <i class="size-5" data-lucide="panel-left"></i>
@@ -114,13 +135,14 @@
           aria-live="polite"
           class="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain"
         >
-          <!-- Centered message column: mirrors the composer's max-w-2xl so the
-               conversation shares its centre axis. `m-auto` centres the
-               column in the region while the chat is short; once it
-               outgrows the window the auto margins collapse and the thread
-               scrolls from the top as usual. Empty by design — no dummy
-               data, messages land here at runtime. -->
-          <div id="chat-column" class="m-auto flex w-full max-w-2xl flex-col gap-6 p-4"></div>
+          <!-- Message column: mirrors the composer's max-w-2xl so the
+               conversation shares its centre axis. `mx-auto` keeps it
+               horizontally centred while the chat starts at the top, just
+               below the title bar's gap, and grows downward; once it
+               outgrows the window the thread scrolls from the top as
+               usual. Empty by design — no dummy data, messages land here
+               at runtime. -->
+          <div id="chat-column" class="mx-auto flex w-full max-w-2xl flex-col gap-6 p-4"></div>
         </section>
         <!-- Chat composer, docked to the bottom of the content area and always
              centred horizontally. Split like the title-bar controls above:

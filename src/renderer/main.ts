@@ -5,13 +5,14 @@
  * in index.html, then wire up the custom title bar, sidebar and theme.
  */
 import { appWindow, titleBarMetrics } from '@vantail/api'
-import { ChevronDown, createIcons, Mic, Moon, PanelLeft, Plus, Search, SendHorizontal, Settings, Sun, Wrench, X } from 'lucide'
+import { ChevronDown, createIcons, MessageSquare, Mic, Moon, PanelLeft, Pencil, Pin, PinOff, Plus, Search, SendHorizontal, Settings, Sun, Trash2, Wrench, X } from 'lucide'
 import { ChatHistory, chatStream, getSelectedModel, setSelectedModel, type SelectedModel } from './chat.ts'
+import { sessionStore, type ChatSession } from './sessions.ts'
 
 // Hydrate the Lucide icons declared as `<i data-lucide="…">` in index.html.
 // The runtime swaps each placeholder for its SVG, keeping the element's own
 // class and data-* attributes (e.g. `data-theme-icon`, `hidden`).
-createIcons({ icons: { ChevronDown, Mic, Moon, PanelLeft, Plus, Search, SendHorizontal, Settings, Sun, Wrench, X } })
+createIcons({ icons: { ChevronDown, MessageSquare, Mic, Moon, PanelLeft, Pencil, Pin, PinOff, Plus, Search, SendHorizontal, Settings, Sun, Trash2, Wrench, X } })
 
 // How far the macOS traffic lights settle below the bar's vertical centre, so
 // the sidebar's toggle can sit on the very same row. One source of truth for
@@ -86,10 +87,14 @@ function wireTitleBarSearch(): void {
     field.focus()
   })
 
-  field.addEventListener('input', updateClear)
+  field.addEventListener('input', () => {
+    updateClear()
+    sessionStore.setSearch(field.value)
+  })
   clear.addEventListener('click', () => {
     field.value = ''
     updateClear()
+    sessionStore.setSearch('')
     field.focus()
   })
   field.addEventListener('focusout', (event) => {
@@ -101,6 +106,7 @@ function wireTitleBarSearch(): void {
   field.addEventListener('keydown', (event) => {
     if (event.key === 'Escape') {
       field.value = ''
+      sessionStore.setSearch('')
       collapse()
       field.blur()
     }
@@ -399,6 +405,191 @@ function wireSidebarResize(): void {
 }
 
 wireSidebarResize()
+wireSidebarSessions()
+
+/**
+ * Sidebar chat sessions — pinned vs normal chats.
+ *
+ * Renders the left sidebar's two groups from `sessionStore`. Each row shows
+ * the title and hover actions to pin/unpin or delete. Clicking a row makes
+ * it active and dispatches `hideout:session-selected` so the chat thread can
+ * render its messages. The store persists to localStorage and filters via
+ * the title-bar search.
+ */
+function wireSidebarSessions(): void {
+  const pinnedList = document.querySelector<HTMLElement>('#pinned-list')
+  const chatsList = document.querySelector<HTMLElement>('#chats-list')
+  const pinnedSection = document.querySelector<HTMLElement>('#pinned-section')
+  const chatsSection = document.querySelector<HTMLElement>('#chats-section')
+  const emptyEl = document.querySelector<HTMLElement>('#sidebar-empty')
+  const noResultsEl = document.querySelector<HTMLElement>('#sidebar-no-results')
+  const pinnedEmpty = document.querySelector<HTMLElement>('#pinned-empty')
+  const chatsEmpty = document.querySelector<HTMLElement>('#chats-empty')
+  if (!pinnedList || !chatsList || !pinnedSection || !chatsSection) return
+
+  const createRow = (session: ChatSession, isActive: boolean): HTMLElement => {
+    const row = document.createElement('div')
+    row.className = `session-row group${isActive ? ' active' : ''}`
+    row.dataset.sessionId = session.id
+    row.tabIndex = 0
+    row.setAttribute('role', 'button')
+    row.setAttribute('aria-label', session.title)
+    row.setAttribute('aria-selected', String(isActive))
+
+    const icon = document.createElement('i')
+    icon.className = 'session-icon size-4 shrink-0'
+    icon.setAttribute('data-lucide', 'message-square')
+
+    const textCol = document.createElement('div')
+    textCol.className = 'min-w-0 flex-1'
+    const titleEl = document.createElement('div')
+    titleEl.className = 'session-title'
+    titleEl.textContent = session.title
+    titleEl.title = session.title
+    textCol.appendChild(titleEl)
+
+    const actions = document.createElement('div')
+    actions.className = 'session-actions'
+
+    const pinBtn = document.createElement('button')
+    pinBtn.type = 'button'
+    pinBtn.className = `session-action${session.pinned ? ' active-pin' : ''}`
+    pinBtn.setAttribute('aria-label', session.pinned ? 'Unpin chat' : 'Pin chat')
+    pinBtn.dataset.pinToggle = session.id
+    const pinIcon = document.createElement('i')
+    pinIcon.className = 'size-3.5'
+    pinIcon.setAttribute('data-lucide', session.pinned ? 'pin-off' : 'pin')
+    pinBtn.appendChild(pinIcon)
+
+    const deleteBtn = document.createElement('button')
+    deleteBtn.type = 'button'
+    deleteBtn.className = 'session-action'
+    deleteBtn.setAttribute('aria-label', 'Delete chat')
+    deleteBtn.dataset.delete = session.id
+    const trashIcon = document.createElement('i')
+    trashIcon.className = 'size-3.5'
+    trashIcon.setAttribute('data-lucide', 'trash-2')
+    deleteBtn.appendChild(trashIcon)
+
+    // Double-click title to rename inline
+    titleEl.addEventListener('dblclick', (e) => {
+      e.stopPropagation()
+      startRename(session, titleEl)
+    })
+
+    actions.appendChild(pinBtn)
+    actions.appendChild(deleteBtn)
+
+    row.appendChild(icon)
+    row.appendChild(textCol)
+    row.appendChild(actions)
+
+    // Click row → select session
+    row.addEventListener('click', (e) => {
+      const target = e.target as HTMLElement
+      if (target.closest('[data-pin-toggle]') || target.closest('[data-delete]')) return
+      sessionStore.setActive(session.id)
+      window.dispatchEvent(new CustomEvent('hideout:session-selected', { detail: session.id }))
+    })
+    row.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault()
+        sessionStore.setActive(session.id)
+        window.dispatchEvent(new CustomEvent('hideout:session-selected', { detail: session.id }))
+      }
+    })
+    pinBtn.addEventListener('click', (e) => {
+      e.stopPropagation()
+      sessionStore.togglePin(session.id)
+    })
+    deleteBtn.addEventListener('click', (e) => {
+      e.stopPropagation()
+      if (confirm(`Delete "${session.title}"?`)) {
+        const wasActive = sessionStore.getActiveId() === session.id
+        sessionStore.delete(session.id)
+        if (wasActive) {
+          const next = sessionStore.getActiveId()
+          window.dispatchEvent(new CustomEvent('hideout:session-selected', { detail: next }))
+        }
+      }
+    })
+
+    return row
+  }
+
+  const startRename = (session: ChatSession, titleEl: HTMLElement) => {
+    const input = document.createElement('input')
+    input.type = 'text'
+    input.value = session.title
+    input.className =
+      'w-full rounded-md border border-accent bg-card px-1.5 py-0.5 text-sm font-semibold text-ink outline-none'
+    input.setAttribute('aria-label', 'Rename chat')
+    const parent = titleEl.parentElement
+    if (!parent) return
+    titleEl.replaceWith(input)
+    input.focus()
+    input.select()
+    const commit = () => {
+      const next = input.value.trim()
+      if (next && next !== session.title) sessionStore.rename(session.id, next)
+      else {
+        // restore without mutation; store will re-render anyway
+        input.replaceWith(titleEl)
+      }
+    }
+    const cancel = () => input.replaceWith(titleEl)
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') commit()
+      if (e.key === 'Escape') cancel()
+    })
+    input.addEventListener('blur', commit)
+  }
+
+  const render = () => {
+    const activeId = sessionStore.getActiveId()
+    const { pinned, recent } = sessionStore.grouped()
+    const counts = sessionStore.counts()
+    const hasSearch = !!sessionStore.getSearch()
+
+    pinnedList.replaceChildren()
+    chatsList.replaceChildren()
+
+    for (const s of pinned) pinnedList.appendChild(createRow(s, s.id === activeId))
+    for (const s of recent) chatsList.appendChild(createRow(s, s.id === activeId))
+
+    // Hydrate icons for new rows
+    createIcons({ icons: { MessageSquare, Pin, PinOff, Trash2 } })
+
+    // Section visibility
+    const totalFiltered = pinned.length + recent.length
+    if (counts.total === 0) {
+      pinnedSection.hidden = true
+      chatsSection.hidden = true
+      if (emptyEl) emptyEl.hidden = false
+      if (noResultsEl) noResultsEl.hidden = true
+    } else if (hasSearch && totalFiltered === 0) {
+      pinnedSection.hidden = true
+      chatsSection.hidden = true
+      if (emptyEl) emptyEl.hidden = true
+      if (noResultsEl) noResultsEl.hidden = false
+    } else {
+      if (emptyEl) emptyEl.hidden = true
+      if (noResultsEl) noResultsEl.hidden = true
+      pinnedSection.hidden = false
+      chatsSection.hidden = false
+      if (pinnedEmpty) pinnedEmpty.hidden = pinned.length !== 0 || hasSearch
+      if (chatsEmpty) chatsEmpty.hidden = recent.length !== 0 || hasSearch
+      // When no pinned at all (and not searching), hide the whole pinned header to save space
+      if (!hasSearch && counts.pinned === 0) {
+        pinnedSection.hidden = true
+      }
+    }
+  }
+
+  sessionStore.onChange(render)
+  sessionStore.onActiveChanged(() => render())
+  render()
+}
 
 /**
  * Dark/light theme.
@@ -606,9 +797,19 @@ function wireChat(): void {
     }
     if (sending) return
 
+    // Ensure a persisted session for this conversation; a fresh send starts
+    // a new one (title seeded from the first message) with empty history.
+    let session = sessionStore.getActive()
+    if (!session) {
+      session = sessionStore.create(raw.slice(0, 48), [], { pinned: false })
+      history.clear()
+    }
+    const sessionId = session.id
+
     // Optimistically add user bubble and clear the composer
     appendMessage('user', raw)
     history.add('user', raw)
+    sessionStore.setMessages(sessionId, history.snapshot())
     field.value = ''
     field.dispatchEvent(new Event('input', { bubbles: true }))
     // Shrink the auto-grow textarea back
@@ -761,6 +962,7 @@ function wireChat(): void {
         answerEl.textContent = '(empty reply)'
       }
       history.add('assistant', full)
+      sessionStore.setMessages(sessionId, history.snapshot())
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
       if ((e as Error).name === 'AbortError') {
@@ -769,6 +971,10 @@ function wireChat(): void {
         currentDetails()?.classList.remove('reasoning-active')
         currentDetails()?.querySelector('.think-dots')?.remove()
         answerEl.textContent = full ? full + ' — aborted' : 'Aborted.'
+        if (full) {
+          history.add('assistant', full + ' — aborted')
+          sessionStore.setMessages(sessionId, history.snapshot())
+        }
       } else {
         // Replace the pending assistant turn with an error if we never got content
         if (!full) {
@@ -777,9 +983,9 @@ function wireChat(): void {
         } else {
           answerEl.textContent = full
           showError(msg)
+          history.add('assistant', full)
+          sessionStore.setMessages(sessionId, history.snapshot())
         }
-        // Do not add the failed assistant turn to history — keep it retryable
-        // (the user message already stays, so the next retry resends it)
       }
     } finally {
       pending.remove()
