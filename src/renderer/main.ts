@@ -804,22 +804,48 @@ function wireChat(): void {
   if (!thread || !column || !field || !sendBtn) return
 
   const history = new ChatHistory()
-  let sending = false
-  let abort: AbortController | null = null
+  // Per-session concurrency: starting a new chat must not abort a
+  // background stream. The old global `sending`/`abort` dropped the
+  // previous chat's context entirely.
+  const sendingSessions = new Set<string>()
+  const abortControllers = new Map<string, AbortController>()
+  type LiveChat = {
+    root: HTMLElement
+    answerEl: HTMLElement
+    pending: HTMLElement
+    details: HTMLDetailsElement | null
+    full: string
+    thinking: string
+    contentStarted: boolean
+    anyDelta: boolean
+  }
+  const liveChats = new Map<string, LiveChat>()
 
   const scrollToBottom = () => {
     thread.scrollTop = thread.scrollHeight
   }
 
-  const setSending = (v: boolean) => {
-    sending = v
-    field.disabled = v
-    sendBtn.disabled = v
-    sendBtn.setAttribute('aria-busy', String(v))
-    // Dim while sending, but keep the glass look — opacity is the only
-    // visual hint, no markup change.
-    sendBtn.style.opacity = v ? '0.5' : ''
-    field.style.opacity = v ? '0.7' : ''
+  const isActiveSession = (id: string): boolean => sessionStore.getActiveId() === id
+
+  const updateSendingUI = (): void => {
+    const activeId = sessionStore.getActiveId()
+    const activeSending = activeId ? sendingSessions.has(activeId) : false
+    field.disabled = activeSending
+    sendBtn.setAttribute('aria-busy', String(activeSending))
+    sendBtn.style.opacity = activeSending ? '0.5' : ''
+    field.style.opacity = activeSending ? '0.7' : ''
+    if (!activeSending) {
+      // Re-enable based on text when not sending the active session
+      syncSendEnabled()
+    } else {
+      sendBtn.disabled = true
+    }
+  }
+
+  const setSendingFor = (sessionId: string, v: boolean) => {
+    if (v) sendingSessions.add(sessionId)
+    else sendingSessions.delete(sessionId)
+    if (isActiveSession(sessionId)) updateSendingUI()
   }
 
   /** Bubbles only for user/system/error turns — the assistant answer is plain text. */
@@ -869,18 +895,19 @@ function wireChat(): void {
   const canSend = (): boolean => {
     const text = field.value.trim()
     if (!text) return false
-    if (sending) return false
+    const activeId = sessionStore.getActiveId()
+    if (activeId && sendingSessions.has(activeId)) return false
     return true
   }
 
-  const syncSendEnabled = () => {
-    const enabled = canSend()
-    // Keep disabled attribute in sync with content, but `setSending` owns it while streaming
-    if (!sending) {
-      sendBtn.disabled = !field.value.trim()
-      sendBtn.style.opacity = field.value.trim() ? '' : '0.5'
-    }
-    void enabled
+  const syncSendEnabled = (): void => {
+    const activeId = sessionStore.getActiveId()
+    const activeSending = activeId ? sendingSessions.has(activeId) : false
+    // While the active session is streaming, `updateSendingUI` owns disabled state
+    if (activeSending) return
+    const ok = canSend()
+    sendBtn.disabled = !ok
+    sendBtn.style.opacity = ok ? '' : '0.5'
   }
 
   field.addEventListener('input', syncSendEnabled)
@@ -895,7 +922,8 @@ function wireChat(): void {
       field.focus()
       return
     }
-    if (sending) return
+    const activeIdForGuard = sessionStore.getActiveId()
+    if (activeIdForGuard && sendingSessions.has(activeIdForGuard)) return
 
     // Ensure a persisted session for this conversation; a fresh send starts
     // a new one (title seeded from the first message) with empty history.
@@ -922,7 +950,8 @@ function wireChat(): void {
     let details: HTMLDetailsElement | null = null
     let contentStarted = false
     let anyDelta = false
-    abort = new AbortController()
+    const controller = new AbortController()
+    abortControllers.set(sessionId, controller)
 
     // Shiny "thinking" shimmer shown from send until the first delta lands.
     const pending = document.createElement('div')
@@ -931,7 +960,21 @@ function wireChat(): void {
       '<span class="inline-flex items-center gap-1.5"><span class="shimmer-text font-medium">Thinking</span>' +
       '<span class="think-dots"><span class="think-dot"></span><span class="think-dot"></span><span class="think-dot"></span></span></span>'
     assistantWrap.appendChild(pending)
-    setSending(true)
+    // Track live DOM so switching back to this session while it streams re-attaches it.
+    liveChats.set(sessionId, {
+      root: assistantWrap,
+      answerEl,
+      pending,
+      details,
+      full: '',
+      thinking: '',
+      contentStarted: false,
+      anyDelta: false,
+    })
+    setSendingFor(sessionId, true)
+    // Snapshot messages at send time — don't re-read shared `history` which may be
+    // cleared when the user switches to a new chat.
+    const requestMessages = history.snapshot()
 
     // Reasoning trace → numbered steps. Paragraphs (blank-line separated)
     // become steps; the last one grows live while the model thinks.
@@ -988,6 +1031,8 @@ function wireChat(): void {
       d.appendChild(stepsEl)
       assistantWrap.insertBefore(d, answerEl)
       details = d
+      const live = liveChats.get(sessionId)
+      if (live) live.details = d
       return d
     }
 
@@ -1034,35 +1079,55 @@ function wireChat(): void {
       renderSteps()
     }
 
+    const persistAssistant = (content: string, opts: { isAbort?: boolean } = {}): void => {
+      const text = content || (opts.isAbort ? '' : '(empty reply)')
+      // Only mutate shared `history` if this session is still active; otherwise
+      // we would pollute the new chat's history (the original bug).
+      if (isActiveSession(sessionId)) {
+        if (text) {
+          history.add('assistant', text)
+          sessionStore.setMessages(sessionId, history.snapshot())
+        } else {
+          sessionStore.setMessages(sessionId, history.snapshot())
+        }
+      } else {
+        if (text) sessionStore.appendMessages(sessionId, [{ role: 'assistant', content: text }])
+      }
+    }
+
     try {
       for await (const chunk of chatStream({
         providerId: sel.providerId,
         model: sel.id,
-        messages: history.snapshot(),
-        signal: abort.signal,
+        messages: requestMessages,
+        signal: controller.signal,
       })) {
+        const live = liveChats.get(sessionId)
         if (!anyDelta) {
           anyDelta = true
+          if (live) live.anyDelta = true
           pending.remove()
         }
         if (chunk.type === 'thinking' && !contentStarted) {
           thinking += chunk.text
+          if (live) live.thinking = thinking
           renderSteps()
         } else if (chunk.type === 'content') {
           if (!contentStarted) {
             contentStarted = true
+            if (live) live.contentStarted = true
             finishReasoning()
           }
           full += chunk.text
+          if (live) live.full = full
           answerEl.textContent = full
         }
-        scrollToBottom()
+        if (isActiveSession(sessionId)) scrollToBottom()
       }
-      if (!full) {
-        answerEl.textContent = '(empty reply)'
+      if (isActiveSession(sessionId)) {
+        if (!full) answerEl.textContent = '(empty reply)'
       }
-      history.add('assistant', full)
-      sessionStore.setMessages(sessionId, history.snapshot())
+      persistAssistant(full)
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
       if ((e as Error).name === 'AbortError') {
@@ -1071,26 +1136,44 @@ function wireChat(): void {
         currentDetails()?.classList.remove('reasoning-active')
         currentDetails()?.querySelector('.think-dots')?.remove()
         answerEl.textContent = full ? full + ' — aborted' : 'Aborted.'
-        if (full) {
-          history.add('assistant', full + ' — aborted')
-          sessionStore.setMessages(sessionId, history.snapshot())
+        if (full) persistAssistant(full + ' — aborted', { isAbort: true })
+        else if (isActiveSession(sessionId)) {
+          // No content yet — show aborted placeholder only if active
         }
       } else {
         // Replace the pending assistant turn with an error if we never got content
         if (!full) {
           assistantWrap.remove()
-          showError(msg || 'Failed to get reply.')
+          // Keep live map in sync — detached root should not be re-attached
+          liveChats.delete(sessionId)
+          if (isActiveSession(sessionId)) showError(msg || 'Failed to get reply.')
         } else {
           answerEl.textContent = full
-          showError(msg)
-          history.add('assistant', full)
-          sessionStore.setMessages(sessionId, history.snapshot())
+          if (isActiveSession(sessionId)) showError(msg)
         }
+        if (full) persistAssistant(full)
       }
     } finally {
       pending.remove()
-      setSending(false)
-      abort = null
+      const live = liveChats.get(sessionId)
+      // If reasoning was still active, finalize its badge state
+      if (!contentStarted && thinking) {
+        // still thinking but stream ended without content — finalize panel
+        finishReasoning()
+      }
+      // Cleanup live tracking: keep it for a background session that still
+      // needs to be rendered on return? Actually after stream ends the
+      // assistant message is persisted, so live DOM is no longer needed —
+      // the session switch will render from store. Remove it.
+      liveChats.delete(sessionId)
+      if (live && !isActiveSession(sessionId)) {
+        // Background session's DOM was detached; no need to keep it.
+        try {
+          live.root.remove()
+        } catch {}
+      }
+      abortControllers.delete(sessionId)
+      setSendingFor(sessionId, false)
       syncSendEnabled()
     }
   }
@@ -1101,20 +1184,29 @@ function wireChat(): void {
       event.preventDefault()
       void doSend()
     }
-    // Escape aborts an in-flight stream
-    if (event.key === 'Escape' && sending) {
-      abort?.abort()
+    // Escape aborts the active session's in-flight stream only
+    if (event.key === 'Escape') {
+      const activeId = sessionStore.getActiveId()
+      if (activeId && sendingSessions.has(activeId)) {
+        abortControllers.get(activeId)?.abort()
+      }
     }
   })
 
-  // New chat or session switch: clear or restore thread
+  // New chat or session switch: clear or restore thread.
+  // Background streams keep running — switching does NOT abort or
+  // drop their context (fixes "reasoning doesn't finish" bug).
   window.addEventListener('hideout:session-selected', (e: Event) => {
     const id = (e as CustomEvent<string | null>).detail
     if (id === null) {
-      // New chat — clear history and visual thread, abort any inflight
-      abort?.abort()
+      // Clear active — abort all inflight (e.g. explicit new-chat without session)
+      for (const c of abortControllers.values()) c.abort()
+      abortControllers.clear()
+      sendingSessions.clear()
+      liveChats.clear()
       history.clear()
       column.replaceChildren()
+      updateSendingUI()
       return
     }
     const session = sessionStore.get(id)
@@ -1123,7 +1215,43 @@ function wireChat(): void {
     history.clear()
     for (const m of session.messages) history.push(m)
     column.replaceChildren()
-    // Re-render bubbles (reuse simple rendering; reasoning not restored)
+    // If the target session is currently streaming in background, re-attach
+    // its live DOM so the user sees "Thinking"/streaming resume.
+    const live = liveChats.get(id)
+    const isLive = !!live && sendingSessions.has(id)
+    if (isLive && live) {
+      // Render historic messages first (includes the user message), then
+      // the live assistant area that is still streaming.
+      for (const m of history.all) {
+        if (m.role === 'user') {
+          const wrap = document.createElement('div')
+          wrap.className = 'flex w-full justify-end'
+          const bubble = document.createElement('div')
+          bubble.className = 'max-w-[78%] whitespace-pre-wrap break-words rounded-2xl px-4 py-3 text-sm leading-relaxed shadow-sm self-end bg-accent text-white'
+          bubble.textContent = m.content
+          wrap.appendChild(bubble)
+          column.appendChild(wrap)
+        } else if (m.role === 'assistant') {
+          // Already persisted assistant turns; live root holds the *current* pending turn
+          const wrap = document.createElement('div')
+          wrap.className = 'flex w-full flex-col gap-4'
+          const answerEl = document.createElement('div')
+          answerEl.className = 'w-full whitespace-pre-wrap break-words text-sm leading-relaxed text-ink'
+          answerEl.textContent = m.content
+          wrap.appendChild(answerEl)
+          column.appendChild(wrap)
+        }
+      }
+      column.appendChild(live.root)
+      // Sync answer text if it grew while detached
+      live.answerEl.textContent = live.full
+      // Ensure pending visibility reflects live state
+      if (live.anyDelta && live.pending.parentElement) live.pending.remove()
+      thread.scrollTop = thread.scrollHeight
+      updateSendingUI()
+      return
+    }
+    // Normal (non-live) render
     for (const m of history.all) {
       if (m.role === 'user') {
         const wrap = document.createElement('div')
@@ -1144,10 +1272,14 @@ function wireChat(): void {
       }
     }
     thread.scrollTop = thread.scrollHeight
+    updateSendingUI()
+    syncSendEnabled()
   })
 
-  // Abort on navigation/unload
-  window.addEventListener('beforeunload', () => abort?.abort())
+  // Abort all on navigation/unload
+  window.addEventListener('beforeunload', () => {
+    for (const c of abortControllers.values()) c.abort()
+  })
 }
 
 initTheme()

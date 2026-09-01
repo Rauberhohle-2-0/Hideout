@@ -130,26 +130,122 @@ class SessionStore {
     return this.searchQuery;
   }
 
-  private matchesSearch(s: ChatSession): boolean {
-    if (!this.searchQuery) return true;
+  private searchTokens(): string[] {
+    if (!this.searchQuery) return [];
+    return this.searchQuery.split(/\s+/).filter(Boolean);
+  }
+
+  private levenshtein(a: string, b: string): number {
+    const m = a.length;
+    const n = b.length;
+    if (m === 0) return n;
+    if (n === 0) return m;
+    const dp = Array.from({ length: m + 1 }, () => new Array<number>(n + 1).fill(0));
+    for (let i = 0; i <= m; i++) dp[i]![0] = i;
+    for (let j = 0; j <= n; j++) dp[0]![j] = j;
+    for (let i = 1; i <= m; i++) {
+      for (let j = 1; j <= n; j++) {
+        const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+        dp[i]![j] = Math.min(dp[i - 1]![j]! + 1, dp[i]![j - 1]! + 1, dp[i - 1]![j - 1]! + cost);
+      }
+    }
+    return dp[m]![n]!;
+  }
+
+  private escapeRegExp(s: string): string {
+    return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  }
+
+  private hasPhrase(text: string, phrase: string): boolean {
+    if (phrase.length <= 2) {
+      const re = new RegExp(`\\b${this.escapeRegExp(phrase)}\\b`);
+      return re.test(text);
+    }
+    return text.includes(phrase);
+  }
+
+  private hasToken(text: string, token: string): boolean {
+    if (token.length <= 2) {
+      const re = new RegExp(`\\b${this.escapeRegExp(token)}\\b`);
+      return re.test(text);
+    }
+    return text.includes(token);
+  }
+
+  private countOccurrences(text: string, needle: string): number {
+    if (needle.length <= 2) {
+      const re = new RegExp(`\\b${this.escapeRegExp(needle)}\\b`, "g");
+      const m = text.match(re);
+      return m ? m.length : 0;
+    }
+    return text.split(needle).length - 1;
+  }
+
+  private scoreSession(s: ChatSession): number {
     const q = this.searchQuery;
-    if (s.title.toLowerCase().includes(q)) return true;
-    // Also match preview / last message.
-    const last = s.messages[s.messages.length - 1]?.content.toLowerCase() ?? "";
-    if (last.includes(q)) return true;
-    return false;
+    if (!q) return 0;
+    const tokens = this.searchTokens();
+    const titleLower = s.title.toLowerCase();
+    const allContents = s.messages.map((m) => m.content.toLowerCase()).join("\n");
+    const combined = `${titleLower}\n${allContents}`;
+    let score = 0;
+
+    // Exact / phrase bonus on title (word-boundary aware for short queries)
+    if (titleLower === q) score += 100;
+    else if (this.hasPhrase(titleLower, q)) score += 50;
+    else {
+      for (const t of tokens) if (this.hasToken(titleLower, t)) score += 12;
+    }
+
+    // Full phrase appearing anywhere (title or messages)
+    if (this.hasPhrase(combined, q)) {
+      const occ = this.countOccurrences(combined, q);
+      score += 25 + Math.min(occ * 3, 15);
+    }
+
+    // Per-token matching across all messages
+    const words = combined.split(/\s+/).filter(Boolean);
+    for (const t of tokens) {
+      if (this.hasToken(combined, t)) {
+        const cnt = this.countOccurrences(combined, t);
+        score += 4 + Math.min(cnt * 1.5, 8);
+        if (words.some((w) => w.startsWith(t))) score += 2;
+      } else if (t.length >= 3) {
+        // Fuzzy: tolerate 1-2 edits for typos
+        for (const w of words) {
+          if (Math.abs(w.length - t.length) > 2) continue;
+          const dist = this.levenshtein(w, t);
+          if (dist <= 1 || (t.length > 4 && dist <= 2)) {
+            score += 3;
+            break;
+          }
+        }
+      }
+    }
+
+    return score;
   }
 
   // — CRUD —————————————————————————————————————————————————————
 
   list(): ChatSession[] {
-    const all = [...this.sessions.values()].filter((s) => this.matchesSearch(s)).sort(sortSessions);
-    return all;
+    const values = [...this.sessions.values()];
+    if (!this.searchQuery) return values.sort(sortSessions);
+    const scored = values
+      .map((s) => ({ s, score: this.scoreSession(s) }))
+      .filter((x) => x.score > 0)
+      .sort((a, b) => b.score - a.score || b.s.updatedAt - a.s.updatedAt)
+      .map((x) => x.s);
+    return scored;
   }
 
-  /** Groups current (filtered) list into pinned / recent. */
+  /** Groups current (filtered) list into pinned / recent. Preserves relevance order when searching. */
   grouped(): { pinned: ChatSession[]; recent: ChatSession[] } {
-    return groupSessions(this.list());
+    const filtered = this.list();
+    if (!this.searchQuery) return groupSessions(filtered);
+    const pinned = filtered.filter((s) => s.pinned);
+    const recent = filtered.filter((s) => !s.pinned);
+    return { pinned, recent };
   }
 
   /** Unfiltered counts for empty-state text. */
