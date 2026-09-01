@@ -1280,6 +1280,14 @@ function wireChat(): void {
   window.addEventListener('beforeunload', () => {
     for (const c of abortControllers.values()) c.abort()
   })
+
+  // Hydrate the last chat after the selection listener is registered. The
+  // active id is persisted by SessionStore, so reopening the app restores the
+  // same conversation instead of showing an empty thread. On first launch (or
+  // after all chats were deleted), create the requested empty draft.
+  const active = sessionStore.getActive()
+  const restored = active ?? sessionStore.create()
+  window.dispatchEvent(new CustomEvent('hideout:session-selected', { detail: restored.id }))
 }
 
 initTheme()
