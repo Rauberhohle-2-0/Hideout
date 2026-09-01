@@ -284,5 +284,31 @@ function wireThemeToggle(): void {
   }
 }
 
+/**
+ * Auto-grow the chat composer's textarea with its content.
+ *
+ * The field is a textarea whose height tracks its scrollHeight on every
+ * input, so the pill grows line by line instead of clipping long messages.
+ * Growth is capped at 40% of the window height - past it, the textarea's own
+ * scrollbar (overflow-y-auto) takes over so the bar never outgrows the
+ * window. The cap is re-measured on window resize.
+ */
+function wireComposer(): void {
+  const field = document.querySelector<HTMLTextAreaElement>('#composer-field')
+  if (!field) return
+
+  const resize = () => {
+    const maxHeight = Math.round(window.innerHeight * 0.4)
+    // Reset first so the height can shrink again when text is removed.
+    field.style.height = 'auto'
+    field.style.height = `${Math.min(field.scrollHeight, maxHeight)}px`
+  }
+
+  field.addEventListener('input', resize)
+  window.addEventListener('resize', resize)
+  resize()
+}
+
 initTheme()
 wireThemeToggle()
+wireComposer()
