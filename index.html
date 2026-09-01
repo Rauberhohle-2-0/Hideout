@@ -7,14 +7,14 @@
     <link rel="stylesheet" href="/src/renderer/styles.css" />
     <script type="module" src="/src/renderer/main.ts"></script>
   </head>
-  <body class="flex h-screen antialiased sidebar-collapsed">
+  <body class="flex h-screen antialiased">
     <!-- Left sidebar shell, full height so it reaches the top edge and sits
          over the title-bar area on the leading side (the traffic lights float
          above it). Empty for now; width is user-resizable from the edge and
          animated on collapse. -->
     <!-- Starts collapsed: opt-in space the user opens via the toggle in the
          title bar or by dragging the resize handle. -->
-    <aside id="sidebar" class="collapsed h-full shrink-0 overflow-hidden border-r border-black/[0.08] bg-[#fbfbfb] transition-[width] duration-200 ease-out dark:border-white/[0.08] dark:bg-[#1c1c1c]">
+    <aside id="sidebar" class="h-full shrink-0 overflow-hidden border-r border-black/[0.08] bg-[#fbfbfb] transition-[width] duration-200 ease-out dark:border-white/[0.08] dark:bg-[#1c1c1c]">
       <div class="flex h-full w-full min-w-0 flex-col">
         <!-- Session lists: scrollable region. Two groups, pinned on top
               then recent chats — rebuilt to match the screenshot:
@@ -94,7 +94,7 @@
               data-sidebar-toggle
               type="button"
               aria-label="Toggle sidebar"
-              aria-expanded="false"
+              aria-expanded="true"
               class="grid size-8 place-items-center rounded-full text-dim transition-colors duration-150 hover:bg-black/10 hover:text-ink active:bg-black/15 dark:hover:bg-white/10 dark:hover:text-ink dark:active:bg-white/15"
             >
               <i class="size-5" data-lucide="panel-left"></i>
