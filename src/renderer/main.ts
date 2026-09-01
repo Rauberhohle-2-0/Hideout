@@ -851,7 +851,7 @@ function wireChat(): void {
   /** Bubbles only for user/system/error turns — the assistant answer is plain text. */
   const bubbleClass = (role: 'user' | 'system' | 'error') => {
     const base = 'max-w-[78%] whitespace-pre-wrap break-words rounded-2xl px-4 py-3 text-sm leading-relaxed shadow-sm'
-    if (role === 'user') return `${base} self-end bg-accent text-white`
+    if (role === 'user') return `${base} user-message-bubble self-end text-ink`
     if (role === 'error') return `${base} self-start border border-red-200 bg-red-50 text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-200`
     // system
     return `${base} self-center bg-card/60 text-dim border border-line/60 text-xs`
@@ -1227,7 +1227,7 @@ function wireChat(): void {
           const wrap = document.createElement('div')
           wrap.className = 'flex w-full justify-end'
           const bubble = document.createElement('div')
-          bubble.className = 'max-w-[78%] whitespace-pre-wrap break-words rounded-2xl px-4 py-3 text-sm leading-relaxed shadow-sm self-end bg-accent text-white'
+          bubble.className = 'max-w-[78%] whitespace-pre-wrap break-words rounded-2xl px-4 py-3 text-sm leading-relaxed shadow-sm user-message-bubble self-end text-ink'
           bubble.textContent = m.content
           wrap.appendChild(bubble)
           column.appendChild(wrap)
@@ -1257,7 +1257,7 @@ function wireChat(): void {
         const wrap = document.createElement('div')
         wrap.className = 'flex w-full justify-end'
         const bubble = document.createElement('div')
-        bubble.className = 'max-w-[78%] whitespace-pre-wrap break-words rounded-2xl px-4 py-3 text-sm leading-relaxed shadow-sm self-end bg-accent text-white'
+        bubble.className = 'max-w-[78%] whitespace-pre-wrap break-words rounded-2xl px-4 py-3 text-sm leading-relaxed shadow-sm user-message-bubble self-end text-ink'
         bubble.textContent = m.content
         wrap.appendChild(bubble)
         column.appendChild(wrap)

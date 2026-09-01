@@ -191,6 +191,33 @@ body.sidebar-collapsed #model-selector {
     0 4px 12px -4px rgb(0 0 0 / 45%);
 }
 
+/* User turns use a blue frosted-glass surface and a soft curved tail,
+   matching the rounded button language while reading as a speech bubble. */
+.user-message-bubble {
+  position: relative;
+  isolation: isolate;
+  background:
+    linear-gradient(145deg, rgb(191 230 255 / 88%) 0%, rgb(83 181 241 / 78%) 100%),
+    color-mix(in oklab, var(--color-accent) 75%, var(--color-card));
+  border: 1px solid rgb(111 202 249 / 72%);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 62%),
+    inset 0 -1px 0 rgb(31 126 197 / 16%),
+    0 8px 18px -8px rgb(20 105 169 / 55%);
+}
+
+:root.dark .user-message-bubble {
+  background:
+    linear-gradient(145deg, rgb(75 151 210 / 72%) 0%, rgb(31 105 165 / 78%) 100%),
+    color-mix(in oklab, var(--color-accent) 60%, var(--color-card));
+  border-color: rgb(119 196 244 / 45%);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 16%),
+    inset 0 -1px 0 rgb(0 35 70 / 22%),
+    0 8px 18px -8px rgb(0 30 65 / 70%);
+}
+
+
 /*
  * Chat reasoning panel — the collapsible <details> around the model's
  * thinking trace. Built at runtime in src/renderer/main.ts, styled here.
