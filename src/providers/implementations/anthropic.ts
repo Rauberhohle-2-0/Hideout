@@ -13,7 +13,7 @@
  * `x-api-key` and `anthropic-version`. Env fallback: `ANTHROPIC_API_KEY`.
  */
 import { BaseProvider } from "../core/base.ts";
-import type { ChatOptions, ChatResult, Model } from "../core/types.ts";
+import type { ChatDelta, ChatOptions, ChatResult, Model } from "../core/types.ts";
 import type { CredentialStore } from "../core/credentials.ts";
 import { createDefaultCredentialStore } from "../core/credentials.ts";
 
@@ -182,7 +182,7 @@ export class AnthropicProvider extends BaseProvider {
     };
   }
 
-  async *chatStream(options: ChatOptions): AsyncIterable<string> {
+  async *chatStream(options: ChatOptions): AsyncIterable<ChatDelta> {
     const key = await this.getApiKey();
     if (!key) throw new Error("Anthropic API key not configured");
     const systemParts = options.messages.filter((m) => m.role === "system").map((m) => m.content);
@@ -215,7 +215,7 @@ export class AnthropicProvider extends BaseProvider {
     }
     if (!res.body) {
       const fallback = await this.chat(options);
-      if (fallback.content) yield fallback.content;
+      if (fallback.content) yield { type: "content", text: fallback.content };
       return;
     }
     const reader = res.body.getReader();
@@ -242,14 +242,19 @@ export class AnthropicProvider extends BaseProvider {
           try {
             const obj = JSON.parse(jsonStr) as {
               type?: string;
-              delta?: { type?: string; text?: string };
-              content_block?: { text?: string };
+              delta?: { type?: string; text?: string; thinking?: string };
+              content_block?: { type?: string; text?: string };
             };
             if (currentEvent === "content_block_delta" || obj.type === "content_block_delta") {
-              const text = obj.delta?.text;
-              if (text) yield text;
-            } else if (obj.type === "content_block_start" && obj.content_block?.text) {
-              yield obj.content_block.text;
+              // Extended thinking models stream `thinking_delta` frames before
+              // the `text_delta` frames of the visible answer.
+              if (obj.delta?.type === "thinking_delta" && obj.delta.thinking) {
+                yield { type: "thinking", text: obj.delta.thinking };
+              } else if (obj.delta?.type === "text_delta" && obj.delta.text) {
+                yield { type: "content", text: obj.delta.text };
+              }
+            } else if (obj.type === "content_block_start" && obj.content_block?.type === "text" && obj.content_block.text) {
+              yield { type: "content", text: obj.content_block.text };
             }
             if (obj.type === "message_stop") return;
           } catch {

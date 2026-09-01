@@ -47,6 +47,13 @@ export type ChatResult = {
   finishReason?: string;
 };
 
+/** One chunk of a streaming chat reply. */
+export type ChatDelta = {
+  /** `content` is the visible answer; `thinking` is the model's reasoning. */
+  type: "content" | "thinking";
+  text: string;
+};
+
 /** Minimal contract a plugin must satisfy. */
 export interface Provider {
   /** Machine id, unique in the registry — e.g. `ollama`, `openai`. */
@@ -59,8 +66,8 @@ export interface Provider {
   listModels(): Promise<Model[]>;
   /** Chat completion — must return the assistant text. */
   chat(options: ChatOptions): Promise<ChatResult>;
-  /** Streaming chat — yields text deltas. Default falls back to `chat`. */
-  chatStream?(options: ChatOptions): AsyncIterable<string>;
+  /** Streaming chat — yields text deltas (content and thinking). Default falls back to `chat`. */
+  chatStream?(options: ChatOptions): AsyncIterable<ChatDelta>;
 }
 
 /** Optional richer status, useful for health endpoints. */

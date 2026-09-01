@@ -5,7 +5,7 @@
  * satisfies `Provider`. The server aggregates with `listModels()`; the UI never
  * needs to know how many providers exist.
  */
-import type { ChatOptions, ChatResult, Model, Provider, ProviderInfo, ProviderStatus } from "./types.ts";
+import type { ChatDelta, ChatOptions, ChatResult, Model, Provider, ProviderInfo, ProviderStatus } from "./types.ts";
 
 export class ProviderRegistry {
   private readonly providers = new Map<string, Provider>();
@@ -80,12 +80,12 @@ export class ProviderRegistry {
   }
 
   /** Streaming chat via the owning provider. */
-  async *chatStream(providerId: string, options: ChatOptions): AsyncIterable<string> {
+  async *chatStream(providerId: string, options: ChatOptions): AsyncIterable<ChatDelta> {
     const provider = this.get(providerId);
     if (!provider) throw new Error(`Unknown provider "${providerId}"`);
     const stream = provider.chatStream ? provider.chatStream(options) : (async function* () {
       const res = await provider.chat(options);
-      if (res.content) yield res.content;
+      if (res.content) yield { type: "content" as const, text: res.content };
     })();
     for await (const chunk of stream) yield chunk;
   }

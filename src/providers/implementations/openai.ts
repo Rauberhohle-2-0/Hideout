@@ -14,7 +14,7 @@
  * nothing — useful for CI, but the keychain is the source of truth.
  */
 import { BaseProvider } from "../core/base.ts";
-import type { ChatOptions, ChatResult, Model } from "../core/types.ts";
+import type { ChatDelta, ChatOptions, ChatResult, Model } from "../core/types.ts";
 import type { CredentialStore } from "../core/credentials.ts";
 import { createDefaultCredentialStore } from "../core/credentials.ts";
 
@@ -160,7 +160,7 @@ export class OpenAIProvider extends BaseProvider {
     };
   }
 
-  async *chatStream(options: ChatOptions): AsyncIterable<string> {
+  async *chatStream(options: ChatOptions): AsyncIterable<ChatDelta> {
     const key = await this.getApiKey();
     if (!key) throw new Error("OpenAI API key not configured");
     const res = await this.fetchImpl(`${this.baseUrl}/chat/completions`, {
@@ -183,7 +183,7 @@ export class OpenAIProvider extends BaseProvider {
     }
     if (!res.body) {
       const fallback = await this.chat(options);
-      if (fallback.content) yield fallback.content;
+      if (fallback.content) yield { type: "content", text: fallback.content };
       return;
     }
     const reader = res.body.getReader();
@@ -203,10 +203,13 @@ export class OpenAIProvider extends BaseProvider {
           const jsonStr = trimmed.slice(6);
           try {
             const obj = JSON.parse(jsonStr) as {
-              choices?: Array<{ delta?: { content?: string }; finish_reason?: string | null }>;
+              choices?: Array<{ delta?: { content?: string; reasoning_content?: string }; finish_reason?: string | null }>;
             };
-            const delta = obj.choices?.[0]?.delta?.content;
-            if (delta) yield delta;
+            const delta = obj.choices?.[0]?.delta;
+            // o-series models send their reasoning trace as `reasoning_content`
+            // deltas before the visible `content` starts.
+            if (delta?.reasoning_content) yield { type: "thinking", text: delta.reasoning_content };
+            if (delta?.content) yield { type: "content", text: delta.content };
             if (obj.choices?.[0]?.finish_reason) return;
           } catch {
             // ignore parse errors for keepalive comments

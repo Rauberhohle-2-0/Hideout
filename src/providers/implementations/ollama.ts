@@ -14,7 +14,7 @@
  * A custom `fetch` can be injected for tests or non-standard runtimes.
  */
 import { BaseProvider } from "../core/base.ts";
-import type { ChatOptions, ChatResult, Model } from "../core/types.ts";
+import type { ChatDelta, ChatOptions, ChatResult, Model } from "../core/types.ts";
 
 export type OllamaOptions = {
   /** Base URL without trailing slash, e.g. `http://127.0.0.1:11434`. */
@@ -115,11 +115,11 @@ export class OllamaProvider extends BaseProvider {
         model: options.model,
         messages: options.messages,
         stream: false,
-        // Qwen3.5 / thinking models default to `think:true` and stream a long
-        // `thinking` trace before any `content`. That makes the SSE appear to
-        // show reasoning but never the answer (and idles until timeout). Disable
-        // thinking for chat so the model answers directly.
-        think: false,
+        // Qwen3.x and other thinking models default to `think:true`; the
+        // non-stream response only carries the final `content`, so thinking
+        // needs no special handling here. `think` is kept explicit so the
+        // request is self-describing.
+        think: true,
       }),
     });
     if (!res.ok) {
@@ -141,7 +141,7 @@ export class OllamaProvider extends BaseProvider {
     };
   }
 
-  async *chatStream(options: ChatOptions): AsyncIterable<string> {
+  async *chatStream(options: ChatOptions): AsyncIterable<ChatDelta> {
     const res = await this.fetchImpl(`${this.baseUrl}/api/chat`, {
       method: "POST",
       signal: options.signal,
@@ -150,7 +150,10 @@ export class OllamaProvider extends BaseProvider {
         model: options.model,
         messages: options.messages,
         stream: true,
-        think: false,
+        // `think:true` lets thinking models surface their reasoning as
+        // `message.thinking` chunks before the `content` starts. The UI
+        // renders the trace as a collapsible; the answer arrives as usual.
+        think: true,
       }),
     });
     if (!res.ok) {
@@ -160,7 +163,7 @@ export class OllamaProvider extends BaseProvider {
     if (!res.body) {
       // Fallback to non-stream
       const fallback = await this.chat(options);
-      if (fallback.content) yield fallback.content;
+      if (fallback.content) yield { type: "content", text: fallback.content };
       return;
     }
     const reader = res.body.getReader();
@@ -183,22 +186,23 @@ export class OllamaProvider extends BaseProvider {
               error?: string;
             };
             if (obj.error) throw new Error(obj.error);
-            // `thinking` is ignored (think: false disables it); only `content`
-            // is the final answer the UI should show.
-            if (obj.message?.content) yield obj.message.content;
+            // `thinking` (reasoning trace, think:true) streams before
+            // `content`; both become typed deltas for the UI.
+            if (obj.message?.thinking) yield { type: "thinking", text: obj.message.thinking };
+            if (obj.message?.content) yield { type: "content", text: obj.message.content };
             if (obj.done) return;
           } catch (e) {
-            // If not JSON, treat as raw chunk
-            if (trimmed) yield trimmed;
+            // If not JSON, treat as raw content chunk
+            if (trimmed) yield { type: "content", text: trimmed };
           }
         }
       }
       if (buf.trim()) {
         try {
           const obj = JSON.parse(buf) as { message?: { content?: string } };
-          if (obj.message?.content) yield obj.message.content;
+          if (obj.message?.content) yield { type: "content", text: obj.message.content };
         } catch {
-          yield buf;
+          yield { type: "content", text: buf };
         }
       }
     } finally {

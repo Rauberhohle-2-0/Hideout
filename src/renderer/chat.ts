@@ -15,9 +15,10 @@
  * // non-streaming
  * const reply = await chat({ providerId, model, messages });
  *
- * // streaming — update the UI per delta
- * for await (const delta of chatStream({ providerId, model, messages })) {
- *   el.textContent += delta;
+ * // streaming — update the UI per delta, distinguishing reasoning from text
+ * for await (const chunk of chatStream({ providerId, model, messages })) {
+ *   if (chunk.type === "thinking") renderThinking(chunk.text);
+ *   else el.textContent += chunk.text;
  * }
  * ```
  */
@@ -141,13 +142,20 @@ export async function chat(options: ChatOptions): Promise<ChatResponse> {
   };
 }
 
+/** One chunk of a streaming reply: reasoning (`thinking`) or visible answer text. */
+export type ChatStreamChunk = {
+  type: "thinking" | "content";
+  text: string;
+};
+
 /**
- * Streaming chat — yields text deltas as they arrive.
+ * Streaming chat — yields deltas as they arrive.
  *
- * The sidecar emits SSE `data: {"delta":"..."}` lines; we parse them here.
+ * The sidecar emits SSE `data: {"delta":"..."}` (visible text) and
+ * `data: {"thinking":"..."}` (reasoning trace) lines; we parse them here.
  * The async iterable completes after `data: [DONE]`.
  */
-export async function* chatStream(options: ChatOptions): AsyncIterable<string> {
+export async function* chatStream(options: ChatOptions): AsyncIterable<ChatStreamChunk> {
   const payload: ChatRequest = {
     providerId: options.providerId,
     model: options.model,
@@ -164,7 +172,7 @@ export async function* chatStream(options: ChatOptions): AsyncIterable<string> {
   if (!res.body) {
     // No streaming body — fall back to non-streaming
     const data = (await res.json()) as ChatResponse;
-    if (data.content) yield data.content;
+    if (data.content) yield { type: "content", text: data.content };
     return;
   }
   const reader = res.body.getReader();
@@ -185,9 +193,10 @@ export async function* chatStream(options: ChatOptions): AsyncIterable<string> {
           const data = trimmed.slice(6);
           if (data === "[DONE]") return;
           try {
-            const obj = JSON.parse(data) as { delta?: string; error?: string };
+            const obj = JSON.parse(data) as { delta?: string; thinking?: string; error?: string };
             if (obj.error) throw new Error(obj.error);
-            if (obj.delta) yield obj.delta;
+            if (obj.thinking) yield { type: "thinking", text: obj.thinking };
+            else if (obj.delta) yield { type: "content", text: obj.delta };
           } catch (e) {
             if (e instanceof SyntaxError) continue;
             throw e;
@@ -200,8 +209,9 @@ export async function* chatStream(options: ChatOptions): AsyncIterable<string> {
       const data = buf.trim().slice(6);
       if (data !== "[DONE]" && data) {
         try {
-          const obj = JSON.parse(data) as { delta?: string };
-          if (obj.delta) yield obj.delta;
+          const obj = JSON.parse(data) as { delta?: string; thinking?: string };
+          if (obj.thinking) yield { type: "thinking", text: obj.thinking };
+          else if (obj.delta) yield { type: "content", text: obj.delta };
         } catch {}
       }
     }
@@ -231,13 +241,13 @@ export async function sendMessage(
   const messages = history.snapshot();
   if (opts.stream) {
     let full = "";
-    for await (const delta of chatStream({
+    for await (const chunk of chatStream({
       providerId: selected.providerId,
       model: selected.id,
       messages,
       signal: opts.signal,
     })) {
-      full += delta;
+      if (chunk.type === "content") full += chunk.text;
     }
     const res: ChatResponse = { content: full, model: selected.id, providerId: selected.providerId };
     history.add("assistant", full);

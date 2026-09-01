@@ -6,7 +6,7 @@
  */
 import { appWindow, titleBarMetrics } from '@vantail/api'
 import { ChevronDown, createIcons, Mic, Moon, PanelLeft, Plus, Search, SendHorizontal, Settings, Sun, Wrench, X } from 'lucide'
-import { ChatHistory, chat, chatStream, getSelectedModel, setSelectedModel, type SelectedModel } from './chat.ts'
+import { ChatHistory, chatStream, getSelectedModel, setSelectedModel, type SelectedModel } from './chat.ts'
 
 // Hydrate the Lucide icons declared as `<i data-lucide="…">` in index.html.
 // The runtime swaps each placeholder for its SVG, keeping the element's own
@@ -531,34 +531,44 @@ function wireChat(): void {
     field.style.opacity = v ? '0.7' : ''
   }
 
-  const bubbleClass = (role: 'user' | 'assistant' | 'system' | 'error') => {
+  /** Bubbles only for user/system/error turns — the assistant answer is plain text. */
+  const bubbleClass = (role: 'user' | 'system' | 'error') => {
     const base = 'max-w-[78%] whitespace-pre-wrap break-words rounded-2xl px-4 py-3 text-sm leading-relaxed shadow-sm'
     if (role === 'user') return `${base} self-end bg-accent text-white`
     if (role === 'error') return `${base} self-start border border-red-200 bg-red-50 text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-200`
-    if (role === 'system') return `${base} self-center bg-card/60 text-dim border border-line/60 text-xs`
-    // assistant
-    return `${base} self-start glass-pane border border-line/60 bg-card/70 text-ink backdrop-blur-md`
+    // system
+    return `${base} self-center bg-card/60 text-dim border border-line/60 text-xs`
   }
 
-  const appendMessage = (role: 'user' | 'assistant' | 'system' | 'error', content: string): HTMLElement => {
+  const appendMessage = (role: 'user' | 'system' | 'error', content: string): HTMLElement => {
     // The message column (#chat-column) holds gap/padding already, so each
     // row is just its bubble, aligned within the centred column.
     const wrap = document.createElement('div')
-    wrap.className = `flex w-full ${role === 'user' ? 'justify-end' : 'justify-start'}`
-    if (role === 'system') wrap.className = 'flex w-full justify-center'
-
+    wrap.className = role === 'user' ? 'flex w-full justify-end' : 'flex w-full justify-center'
     const bubble = document.createElement('div')
     bubble.className = bubbleClass(role)
-    // Keep line breaks and escape HTML — the assistant may return markup-like text
+    // Keep line breaks and escape HTML — assistant turns may return markup-like text
     bubble.textContent = content
-    // Preserve empty while streaming: show a pulsing dot instead of collapsing
-    if (role === 'assistant' && !content) {
-      bubble.innerHTML = '<span class="inline-flex items-center gap-1 text-dim"><span class="size-1.5 animate-pulse rounded-full bg-dim"></span> thinking…</span>'
-    }
     wrap.appendChild(bubble)
     column.appendChild(wrap)
     scrollToBottom()
     return bubble
+  }
+
+  /**
+   * Bare assistant turn: full-width plain text, no bubble. The container
+   * leaves room for a collapsible reasoning panel that slides in above the
+   * answer while the model is thinking.
+   */
+  const appendAssistantArea = (): { root: HTMLElement; answerEl: HTMLElement } => {
+    const root = document.createElement('div')
+    root.className = 'flex w-full flex-col gap-4'
+    const answerEl = document.createElement('div')
+    answerEl.className = 'w-full whitespace-pre-wrap break-words text-sm leading-relaxed text-ink'
+    root.appendChild(answerEl)
+    column.appendChild(root)
+    scrollToBottom()
+    return { root, answerEl }
   }
 
   const showError = (msg: string) => {
@@ -605,58 +615,174 @@ function wireChat(): void {
     field.style.height = 'auto'
     field.focus()
 
-    const assistantEl = appendMessage('assistant', '')
+    const { root: assistantWrap, answerEl } = appendAssistantArea()
     let full = ''
+    let thinking = ''
+    let details: HTMLDetailsElement | null = null
+    let contentStarted = false
+    let anyDelta = false
     abort = new AbortController()
+
+    // Shiny "thinking" shimmer shown from send until the first delta lands.
+    const pending = document.createElement('div')
+    pending.className = 'flex items-center text-sm text-dim'
+    pending.innerHTML =
+      '<span class="inline-flex items-center gap-1.5"><span class="shimmer-text font-medium">Thinking</span>' +
+      '<span class="think-dots"><span class="think-dot"></span><span class="think-dot"></span><span class="think-dot"></span></span></span>'
+    assistantWrap.appendChild(pending)
     setSending(true)
 
-    // Prefer streaming for a live typing effect; fall back to non-streaming on error
-    const useStream = true
+    // Reasoning trace → numbered steps. Paragraphs (blank-line separated)
+    // become steps; the last one grows live while the model thinks.
+    const splitSteps = (text: string): string[] =>
+      text
+        .split(/\n{2,}/)
+        .map((s) => s.trim())
+        .filter(Boolean)
+
+    // The collapsible <details> panel is created lazily on the first
+    // thinking delta, collapsed but glowing while reasoning is in progress;
+    // the user can click it open at any time.
+    const ensureDetails = (): HTMLDetailsElement => {
+      if (details) return details
+      const d = document.createElement('details')
+      d.className = 'reasoning-panel reasoning-active'
+      d.open = false
+
+      const summary = document.createElement('summary')
+      const chevron = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+      chevron.setAttribute('viewBox', '0 0 24 24')
+      chevron.setAttribute('fill', 'none')
+      chevron.setAttribute('stroke', 'currentColor')
+      chevron.setAttribute('stroke-width', '2')
+      chevron.classList.add('reasoning-chevron')
+      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path')
+      path.setAttribute('d', 'm6 9 6 6 6-6')
+      chevron.appendChild(path)
+      summary.appendChild(chevron)
+
+      const title = document.createElement('span')
+      title.dataset.reasoningTitle = 'true'
+      title.className = 'shimmer-text font-medium'
+      title.textContent = 'Thinking'
+      summary.appendChild(title)
+
+      const dots = document.createElement('span')
+      dots.className = 'think-dots'
+      dots.innerHTML =
+        '<span class="think-dot"></span><span class="think-dot"></span><span class="think-dot"></span>'
+      summary.appendChild(dots)
+
+      const badge = document.createElement('span')
+      badge.dataset.reasoningBadge = 'true'
+      badge.className = 'reasoning-badge'
+      badge.hidden = true
+      summary.appendChild(badge)
+
+      const stepsEl = document.createElement('div')
+      stepsEl.dataset.reasoningSteps = 'true'
+      stepsEl.className = 'reasoning-steps'
+
+      d.appendChild(summary)
+      d.appendChild(stepsEl)
+      assistantWrap.insertBefore(d, answerEl)
+      details = d
+      return d
+    }
+
+    // Load-bearing accessor: nested-function reads of `details` never narrow
+    // (see the AbortError branch), a bare read does.
+    const currentDetails = (): HTMLDetailsElement | null => details
+
+    const renderSteps = () => {
+      const d = ensureDetails()
+      const box = d.querySelector<HTMLElement>('[data-reasoning-steps]')
+      if (!box) return
+      box.replaceChildren()
+      splitSteps(thinking).forEach((step, i) => {
+        const row = document.createElement('div')
+        row.className = 'reasoning-step'
+        const num = document.createElement('span')
+        num.className = 'reasoning-step-num'
+        num.textContent = `Step ${i + 1}`
+        const text = document.createElement('div')
+        text.textContent = step
+        row.appendChild(num)
+        row.appendChild(text)
+        box.appendChild(row)
+      })
+    }
+
+    // Thinking finished: kill the glow and stamp the summary with the step
+    // count. The panel keeps whatever open/collapsed state the user chose.
+    const finishReasoning = () => {
+      if (!details) return
+      details.classList.remove('reasoning-active')
+      const title = details.querySelector<HTMLElement>('[data-reasoning-title]')
+      if (title) {
+        title.classList.remove('shimmer-text')
+        title.textContent = 'Reasoning'
+      }
+      details.querySelector('.think-dots')?.remove()
+      const steps = splitSteps(thinking)
+      const badge = details.querySelector<HTMLElement>('[data-reasoning-badge]')
+      if (badge) {
+        badge.hidden = false
+        badge.textContent = steps.length === 1 ? '1 step' : `${steps.length} steps`
+      }
+      renderSteps()
+    }
+
     try {
-      if (useStream) {
-        for await (const delta of chatStream({
-          providerId: sel.providerId,
-          model: sel.id,
-          messages: history.snapshot(),
-          signal: abort.signal,
-        })) {
-          full += delta
-          assistantEl.textContent = full
-          scrollToBottom()
+      for await (const chunk of chatStream({
+        providerId: sel.providerId,
+        model: sel.id,
+        messages: history.snapshot(),
+        signal: abort.signal,
+      })) {
+        if (!anyDelta) {
+          anyDelta = true
+          pending.remove()
         }
-        if (!full) {
-          assistantEl.textContent = '(empty reply)'
+        if (chunk.type === 'thinking' && !contentStarted) {
+          thinking += chunk.text
+          renderSteps()
+        } else if (chunk.type === 'content') {
+          if (!contentStarted) {
+            contentStarted = true
+            finishReasoning()
+          }
+          full += chunk.text
+          answerEl.textContent = full
         }
-        history.add('assistant', full)
-      } else {
-        const res = await chat({
-          providerId: sel.providerId,
-          model: sel.id,
-          messages: history.snapshot(),
-          signal: abort.signal,
-        })
-        full = res.content
-        assistantEl.textContent = full || '(empty reply)'
-        history.add('assistant', full)
         scrollToBottom()
       }
+      if (!full) {
+        answerEl.textContent = '(empty reply)'
+      }
+      history.add('assistant', full)
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
       if ((e as Error).name === 'AbortError') {
-        assistantEl.textContent = full ? full + ' — aborted' : 'Aborted.'
+        // `details` is only assigned inside `ensureDetails`, so flow analysis
+        // still believes it is null in this scope; go through the accessor.
+        currentDetails()?.classList.remove('reasoning-active')
+        currentDetails()?.querySelector('.think-dots')?.remove()
+        answerEl.textContent = full ? full + ' — aborted' : 'Aborted.'
       } else {
-        // Replace the pending assistant bubble with an error if we never got content
+        // Replace the pending assistant turn with an error if we never got content
         if (!full) {
-          assistantEl.parentElement?.remove()
+          assistantWrap.remove()
           showError(msg || 'Failed to get reply.')
         } else {
-          assistantEl.textContent = full
+          answerEl.textContent = full
           showError(msg)
         }
         // Do not add the failed assistant turn to history — keep it retryable
-        // (pop the user message already stays, so the next retry resends it)
+        // (the user message already stays, so the next retry resends it)
       }
     } finally {
+      pending.remove()
       setSending(false)
       abort = null
       syncSendEnabled()

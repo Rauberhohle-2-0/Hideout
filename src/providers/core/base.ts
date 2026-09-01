@@ -15,7 +15,7 @@
  *
  *   registry.register(new MyProvider());
  */
-import type { ChatOptions, ChatResult, Model, Provider } from "./types.ts";
+import type { ChatDelta, ChatOptions, ChatResult, Model, Provider } from "./types.ts";
 
 export abstract class BaseProvider implements Provider {
   abstract readonly id: string;
@@ -26,9 +26,9 @@ export abstract class BaseProvider implements Provider {
   abstract chat(options: ChatOptions): Promise<ChatResult>;
 
   /** Default streaming: await full `chat` then yield once. */
-  async *chatStream(options: ChatOptions): AsyncIterable<string> {
+  async *chatStream(options: ChatOptions): AsyncIterable<ChatDelta> {
     const res = await this.chat(options);
-    if (res.content) yield res.content;
+    if (res.content) yield { type: "content", text: res.content };
   }
 
   /** Convenience: single-model lookup by id. */

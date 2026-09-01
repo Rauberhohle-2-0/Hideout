@@ -273,7 +273,9 @@ export function createApp(options: CreateAppOptions = {}) {
     }
 
     if (stream) {
-      // Stream as SSE. Each chunk is `data: {"delta":"..."}\n\n`, closed with `data: [DONE]`.
+      // Stream as SSE. Each chunk is `data: {"delta":"..."}\n\n` for visible
+      // answer text or `data: {"thinking":"..."}` for the model's reasoning
+      // trace, closed with `data: [DONE]`.
       const encoder = new TextEncoder();
       const readable = new ReadableStream<Uint8Array>({
         async start(controller) {
@@ -282,11 +284,13 @@ export function createApp(options: CreateAppOptions = {}) {
               ? provider.chatStream({ model, messages, signal: c.req.raw.signal })
               : (async function* () {
                   const res = await provider.chat({ model, messages, signal: c.req.raw.signal });
-                  if (res.content) yield res.content;
+                  if (res.content) yield { type: "content" as const, text: res.content };
                 })();
             for await (const chunk of iterator) {
               if (c.req.raw.signal.aborted) break;
-              const line = `data: ${JSON.stringify({ delta: chunk })}\n\n`;
+              const payload =
+                chunk.type === "thinking" ? { thinking: chunk.text } : { delta: chunk.text };
+              const line = `data: ${JSON.stringify(payload)}\n\n`;
               controller.enqueue(encoder.encode(line));
             }
             controller.enqueue(encoder.encode("data: [DONE]\n\n"));
