@@ -15,6 +15,7 @@ export default defineConfig({
     proxy: {
       "/greet": `http://127.0.0.1:${honoPort}`,
       "/tip": `http://127.0.0.1:${honoPort}`,
+      "/api": `http://127.0.0.1:${honoPort}`,
     },
   },
 });

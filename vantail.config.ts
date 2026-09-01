@@ -23,7 +23,24 @@ export default defineConfig({
     titleBarHeight: 36,
   },
   permissions: {
-    // Everything is denied until you ask for it. This app needs nothing native
-    // other than its own window, so the default (nothing) is kept.
+    // Secrets = OS keychain (Keychain on macOS, Credential Manager on Windows,
+    // Secret Service on Linux). Namespaced by `app.identifier`, so
+    // `dev.hideout.desktop` cannot read another app's entries and vice versa.
+    // This is where AI provider API keys live — never in localStorage,
+    // filesystem plaintext, or logs.
+    secrets: true,
+    // Webview network: only the hosts the app intentionally talks to. The
+    // Hono sidecar (Bun) is not gated by this, but declaring it here makes
+    // the permission file the single reviewer-visible allow-list. `*` is
+    // avoided — each provider host is listed explicitly per docs/permissions.md.
+    network: {
+      allow: [
+        "api.openai.com",
+        "api.anthropic.com",
+        // Ollama is local; listed for completeness when the webview probes it.
+        "127.0.0.1",
+        "localhost",
+      ],
+    },
   },
 });

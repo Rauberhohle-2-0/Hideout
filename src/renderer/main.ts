@@ -108,9 +108,13 @@ function wireTitleBarSearch(): void {
 
 /**
  * The model-selector dropdown in the title bar. Clicking the pill toggles the
- * (empty, for now) menu beneath it; clicking anywhere else or pressing Escape
- * closes it. Pointer-down is stopped so the header's drag-to-move doesn't
- * fight the click.
+ * menu beneath it; clicking anywhere else or pressing Escape closes it.
+ * Pointer-down is stopped so the header's drag-to-move doesn't fight the click.
+ *
+ * When a provider (e.g. Ollama) is connected, usable models are fetched from
+ * `GET /api/models` and shown in the dropdown. The toggle keeps the
+ * placeholder "Models" until a future selection step — this task only populates
+ * the list.
  */
 function wireModelSelector(): void {
   const selector = document.querySelector<HTMLElement>('#model-selector')
@@ -119,12 +123,37 @@ function wireModelSelector(): void {
   const chevron = document.querySelector<HTMLElement>('#model-selector-chevron')
   if (!selector || !toggle || !menu || !chevron) return
 
+  // Floating tooltip for truncated model names. It lives on <body> so the
+  // menu's overflow clipping can't cut it off, and pairs with the
+  // glass look of the dropdown (palette variables flip with the theme).
+  // Visibility is driven solely through the `hidden` property below (the
+  // attribute kills rendering via the UA stylesheet); no display utility on
+  // the class list, or the two would fight and the tooltip would never show.
+  const tooltip = document.createElement('div')
+  tooltip.className =
+    'pointer-events-none fixed z-[60] rounded-md border border-line/70 bg-card/95 px-2.5 py-1.5 text-xs font-medium whitespace-nowrap text-ink shadow-xl backdrop-blur-md'
+  tooltip.setAttribute('role', 'tooltip')
+  tooltip.hidden = true
+  document.body.appendChild(tooltip)
+
+  // Park the tooltip just past the cursor, flipping it to the other side
+  // when it would run off the window's edge.
+  const positionTooltip = (x: number, y: number) => {
+    tooltip.style.left = `${x + 10}px`
+    tooltip.style.top = `${y + 14}px`
+    const { width: w, height: h } = tooltip.getBoundingClientRect()
+    if (x + 10 + w > window.innerWidth) tooltip.style.left = `${x - w - 10}px`
+    if (y + 14 + h > window.innerHeight) tooltip.style.top = `${y - h - 6}px`
+  }
+
   selector.addEventListener('pointerdown', (event) => event.stopPropagation())
 
   const setOpen = (open: boolean) => {
     toggle.setAttribute('aria-expanded', String(open))
     menu.hidden = !open
     chevron.classList.toggle('rotate-180', open)
+    // A closing menu must not leave a stale tooltip on screen.
+    if (!open) tooltip.hidden = true
   }
 
   toggle.addEventListener('click', () => setOpen(Boolean(menu.hidden)))
@@ -137,6 +166,79 @@ function wireModelSelector(): void {
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape') setOpen(false)
   })
+
+  // Populate the dropdown from the provider API. The endpoint aggregates all
+  // registered providers (Ollama first) — when Ollama is running its models
+  // appear here, otherwise the menu shows an empty state but the placeholder
+  // "Models" remains on the toggle.
+  type ApiModel = { id: string; name: string; providerId: string; providerName: string }
+  const renderModels = (models: ApiModel[]) => {
+    menu.replaceChildren()
+    if (models.length === 0) {
+      const empty = document.createElement('div')
+      empty.className = 'px-3 py-2 text-sm text-dim'
+      empty.textContent = 'No models available'
+      menu.appendChild(empty)
+      return
+    }
+    for (const model of models) {
+      const item = document.createElement('button')
+      item.type = 'button'
+      item.role = 'option'
+      item.dataset.modelId = model.id
+      item.dataset.providerId = model.providerId
+      // Keep visually aligned with the glass dropdown; hover gives affordance
+      // without altering the final design.
+      item.className =
+        'flex w-full items-center rounded-lg px-3 py-2 text-left text-sm font-medium text-ink hover:bg-black/5 dark:hover:bg-white/10 transition-colors'
+      // One line per model: long names are truncated with an ellipsis (the
+      // dropdown keeps its fixed width), and the full id shows in a floating
+      // tooltip on hover when the row actually cut the name off.
+      const label = document.createElement('span')
+      label.className = 'min-w-0 flex-1 truncate'
+      label.textContent = model.name
+      item.appendChild(label)
+      item.setAttribute('aria-label', `${model.providerName} ${model.name}`)
+      item.addEventListener('pointerenter', (event) => {
+        // scrollWidth > clientWidth means the ellipsis is showing — a name
+        // that fits on its row reads itself and needs no tooltip.
+        if (label.scrollWidth <= label.clientWidth) return
+        tooltip.textContent = model.name
+        tooltip.hidden = false
+        positionTooltip(event.clientX, event.clientY)
+      })
+      item.addEventListener('pointermove', (event) => {
+        if (!tooltip.hidden) positionTooltip(event.clientX, event.clientY)
+      })
+      item.addEventListener('pointerleave', () => {
+        tooltip.hidden = true
+      })
+      item.addEventListener('click', () => {
+        // For now just close — selection wiring is the next step. Keeping the
+        // placeholder "Models" on the toggle satisfies the current spec.
+        tooltip.hidden = true
+        setOpen(false)
+      })
+      menu.appendChild(item)
+    }
+  }
+
+  const loadModels = async () => {
+    try {
+      const res = await fetch('/api/models', { headers: { Accept: 'application/json' } })
+      if (!res.ok) {
+        renderModels([])
+        return
+      }
+      const data = (await res.json()) as { models?: ApiModel[] } | ApiModel[]
+      const models = Array.isArray(data) ? data : (data.models ?? [])
+      renderModels(models)
+    } catch {
+      renderModels([])
+    }
+  }
+
+  void loadModels()
 }
 
 /**

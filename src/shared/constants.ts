@@ -14,6 +14,10 @@ export const DEFAULT_NAME = "friend";
 /** Route paths served by the Hono sidecar. */
 export const GREET_ROUTE = "/greet";
 export const TIP_ROUTE = "/tip";
+export const MODELS_ROUTE = "/api/models";
+export const PROVIDERS_ROUTE = "/api/providers";
+export const CREDENTIALS_ROUTE = "/api/credentials";
+export const CREDENTIAL_ROUTE = "/api/credentials/:providerId";
 
 /** The element htmx swaps server fragments into. */
 export const SWAP_TARGET = "#greeting";
