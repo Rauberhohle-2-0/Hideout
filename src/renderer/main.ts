@@ -888,6 +888,60 @@ function wireChat(): void {
     return { root, answerEl }
   }
 
+  const splitReasoningSteps = (text: string): string[] =>
+    text
+      .split(/\\n{2,}/)
+      .map((step) => step.trim())
+      .filter(Boolean)
+
+  const renderPersistedReasoning = (content: string, thinking: string): HTMLElement => {
+    const root = document.createElement('div')
+    root.className = 'flex w-full flex-col gap-4'
+    if (thinking) {
+      const details = document.createElement('details')
+      details.className = 'reasoning-panel'
+      const summary = document.createElement('summary')
+      const chevron = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+      chevron.setAttribute('viewBox', '0 0 24 24')
+      chevron.setAttribute('fill', 'none')
+      chevron.setAttribute('stroke', 'currentColor')
+      chevron.setAttribute('stroke-width', '2')
+      chevron.classList.add('reasoning-chevron')
+      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path')
+      path.setAttribute('d', 'm6 9 6 6 6-6')
+      chevron.appendChild(path)
+      summary.appendChild(chevron)
+      const title = document.createElement('span')
+      title.className = 'font-medium'
+      title.textContent = 'Reasoning'
+      summary.appendChild(title)
+      const badge = document.createElement('span')
+      badge.className = 'reasoning-badge'
+      badge.textContent = splitReasoningSteps(thinking).length === 1 ? '1 step' : `${splitReasoningSteps(thinking).length} steps`
+      summary.appendChild(badge)
+      const steps = document.createElement('div')
+      steps.className = 'reasoning-steps'
+      splitReasoningSteps(thinking).forEach((step, index) => {
+        const row = document.createElement('div')
+        row.className = 'reasoning-step'
+        const number = document.createElement('span')
+        number.className = 'reasoning-step-num'
+        number.textContent = `Step ${index + 1}`
+        const text = document.createElement('div')
+        text.textContent = step
+        row.append(number, text)
+        steps.appendChild(row)
+      })
+      details.append(summary, steps)
+      root.appendChild(details)
+    }
+    const answer = document.createElement('div')
+    answer.className = 'w-full whitespace-pre-wrap break-words text-sm leading-relaxed text-ink'
+    answer.textContent = content
+    root.appendChild(answer)
+    return root
+  }
+
   const showError = (msg: string) => {
     appendMessage('error', msg)
   }
@@ -1081,17 +1135,20 @@ function wireChat(): void {
 
     const persistAssistant = (content: string, opts: { isAbort?: boolean } = {}): void => {
       const text = content || (opts.isAbort ? '' : '(empty reply)')
+      const reasoning = thinking.trim()
       // Only mutate shared `history` if this session is still active; otherwise
       // we would pollute the new chat's history (the original bug).
       if (isActiveSession(sessionId)) {
         if (text) {
           history.add('assistant', text)
+          const assistant = history.all[history.length - 1]
+          if (assistant && reasoning) assistant.thinking = reasoning
           sessionStore.setMessages(sessionId, history.snapshot())
         } else {
           sessionStore.setMessages(sessionId, history.snapshot())
         }
       } else {
-        if (text) sessionStore.appendMessages(sessionId, [{ role: 'assistant', content: text }])
+        if (text) sessionStore.appendMessages(sessionId, [{ role: 'assistant', content: text, ...(reasoning ? { thinking: reasoning } : {}) }])
       }
     }
 
@@ -1111,6 +1168,7 @@ function wireChat(): void {
         if (chunk.type === 'thinking' && !contentStarted) {
           thinking += chunk.text
           if (live) live.thinking = thinking
+          if (isActiveSession(sessionId)) sessionStore.setMessages(sessionId, history.snapshot())
           renderSteps()
         } else if (chunk.type === 'content') {
           if (!contentStarted) {
@@ -1262,13 +1320,7 @@ function wireChat(): void {
         wrap.appendChild(bubble)
         column.appendChild(wrap)
       } else if (m.role === 'assistant') {
-        const wrap = document.createElement('div')
-        wrap.className = 'flex w-full flex-col gap-4'
-        const answerEl = document.createElement('div')
-        answerEl.className = 'w-full whitespace-pre-wrap break-words text-sm leading-relaxed text-ink'
-        answerEl.textContent = m.content
-        wrap.appendChild(answerEl)
-        column.appendChild(wrap)
+        column.appendChild(renderPersistedReasoning(m.content, m.thinking ?? ''))
       }
     }
     thread.scrollTop = thread.scrollHeight

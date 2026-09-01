@@ -81,6 +81,7 @@ export function validateSession(raw: unknown): string | null {
     const msg = m as Record<string, unknown>;
     if (msg.role !== "user" && msg.role !== "assistant" && msg.role !== "system") return "Invalid message role";
     if (typeof msg.content !== "string") return "Invalid message content";
+    if (msg.thinking !== undefined && typeof msg.thinking !== "string") return "Invalid message thinking";
   }
   return null;
 }

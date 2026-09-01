@@ -10,6 +10,8 @@ export type ChatRole = "user" | "assistant" | "system";
 export type ChatMessage = {
   role: ChatRole;
   content: string;
+  /** Model reasoning captured separately from the visible assistant answer. */
+  thinking?: string;
 };
 
 export type ChatRequest = {
