@@ -289,21 +289,37 @@ function wireThemeToggle(): void {
  *
  * The field is a textarea whose height tracks its scrollHeight on every
  * input, so the pill grows line by line instead of clipping long messages.
- * Growth is capped at 40% of the window height - past it, the textarea's own
- * scrollbar (overflow-y-auto) takes over so the bar never outgrows the
- * window. The cap is re-measured on window resize.
+ * Growth stops at exactly four lines of text (or 40% of the window height
+ * on smaller windows); past it, the textarea scrolls instead of growing, so
+ * the bar stays compact and the line being typed is never cut off.
  */
 function wireComposer(): void {
   const field = document.querySelector<HTMLTextAreaElement>('#composer-field')
   if (!field) return
 
+  // Whether the caret is at the end of the text (the default). While true,
+  // the view stays pinned to the bottom once the text outgrows the bar, so
+  // the line being typed is always fully visible; scrolling up to re-read
+  // older text un-pins it and is respected until the next keystroke.
+  let pinnedToBottom = true
+
   const resize = () => {
-    const maxHeight = Math.round(window.innerHeight * 0.4)
+    const maxHeight = Math.min(120, Math.round(window.innerHeight * 0.4))
     // Reset first so the height can shrink again when text is removed.
     field.style.height = 'auto'
     field.style.height = `${Math.min(field.scrollHeight, maxHeight)}px`
+    // Keep the current (bottom) line in view when the text overflows the
+    // cap; without this, typing continues below the fold, out of sight.
+    if (pinnedToBottom && field.scrollHeight > maxHeight) {
+      field.scrollTop = field.scrollHeight
+    }
   }
 
+  field.addEventListener('scroll', () => {
+    if (field.scrollHeight > field.clientHeight) {
+      pinnedToBottom = field.scrollTop + field.clientHeight >= field.scrollHeight - 1
+    }
+  })
   field.addEventListener('input', resize)
   window.addEventListener('resize', resize)
   resize()
