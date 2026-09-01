@@ -5,14 +5,14 @@
  * in index.html, then wire up the custom title bar, sidebar and theme.
  */
 import { appWindow, titleBarMetrics } from '@vantail/api'
-import { ChevronDown, createIcons, MessageCircle, Mic, Moon, PanelLeft, Pencil, Pin, PinOff, Plus, Search, SendHorizontal, Settings, Sun, Trash2, Wrench, X } from 'lucide'
+import { ChevronDown, createIcons, MessageCircle, Mic, Moon, PanelLeft, Pencil, Pin, PinOff, Plus, Search, SendHorizontal, Settings, SquarePen, Sun, Trash2, Wrench, X } from 'lucide'
 import { ChatHistory, chatStream, getSelectedModel, setSelectedModel, type SelectedModel } from './chat.ts'
 import { sessionStore, type ChatSession } from './sessions.ts'
 
 // Hydrate the Lucide icons declared as `<i data-lucide="…">` in index.html.
 // The runtime swaps each placeholder for its SVG, keeping the element's own
 // class and data-* attributes (e.g. `data-theme-icon`, `hidden`).
-createIcons({ icons: { ChevronDown, MessageCircle, Mic, Moon, PanelLeft, Pencil, Pin, PinOff, Plus, Search, SendHorizontal, Settings, Sun, Trash2, Wrench, X } })
+createIcons({ icons: { ChevronDown, MessageCircle, Mic, Moon, PanelLeft, Pencil, Pin, PinOff, Plus, Search, SendHorizontal, Settings, SquarePen, Sun, Trash2, Wrench, X } })
 
 // How far the macOS traffic lights settle below the bar's vertical centre, so
 // the sidebar's toggle can sit on the very same row. One source of truth for
@@ -54,6 +54,7 @@ function wireTitleBar(): void {
 
 wireTitleBar()
 wireTitleBarSearch()
+wireNewChatButton()
 wireModelSelector()
 
 /**
@@ -109,6 +110,47 @@ function wireTitleBarSearch(): void {
       sessionStore.setSearch('')
       collapse()
       field.blur()
+    }
+  })
+}
+
+/**
+ * New chat button — separate circular button to the right of search,
+ * same aesthetic (titlebar-group, size-10, rounded-full, border,
+ * bg-card/80, backdrop-blur-md, hover/active states).
+ * Click actually creates a new chat entry so the sidebar shows it
+ * immediately (not just clearing the thread). If an empty draft already
+ * exists and is active, reuse it to avoid spamming empty chats.
+ */
+function wireNewChatButton(): void {
+  const btn = document.querySelector<HTMLButtonElement>('#new-chat-button')
+  const field = document.querySelector<HTMLTextAreaElement>('#composer-field')
+  if (!btn) return
+
+  btn.addEventListener('pointerdown', (event) => event.stopPropagation())
+
+  btn.addEventListener('click', () => {
+    const active = sessionStore.getActive()
+    // Reuse an existing empty draft to avoid duplicate "New chat" rows
+    if (active && active.messages.length === 0) {
+      window.dispatchEvent(new CustomEvent('hideout:session-selected', { detail: active.id }))
+      if (field) {
+        field.value = ''
+        field.focus()
+        field.dispatchEvent(new Event('input', { bubbles: true }))
+      }
+      return
+    }
+
+    // Actually create a new chat — appears instantly in the sidebar
+    // (Aktuelle) and becomes the active thread. Chat history/column
+    // will be cleared via the hideout:session-selected listener in wireChat.
+    const session = sessionStore.create(undefined, [], { pinned: false })
+    window.dispatchEvent(new CustomEvent('hideout:session-selected', { detail: session.id }))
+    if (field) {
+      field.value = ''
+      field.focus()
+      field.dispatchEvent(new Event('input', { bubbles: true }))
     }
   })
 }
@@ -555,15 +597,19 @@ function wireSidebarSessions(): void {
       e.stopPropagation()
       sessionStore.togglePin(session.id)
     })
+    pinBtn.addEventListener('pointerdown', (e) => e.stopPropagation())
+    deleteBtn.addEventListener('pointerdown', (e) => e.stopPropagation())
     deleteBtn.addEventListener('click', (e) => {
       e.stopPropagation()
-      if (confirm(`Delete "${session.title}"?`)) {
-        const wasActive = sessionStore.getActiveId() === session.id
-        sessionStore.delete(session.id)
-        if (wasActive) {
-          const next = sessionStore.getActiveId()
-          window.dispatchEvent(new CustomEvent('hideout:session-selected', { detail: next }))
-        }
+      // Remove immediately — `confirm()` is unreliable in WKWebView/Vantail
+      // and was preventing deletion (always returned false). No confirmation
+      // dialog; delete is instant and handled via the store.
+      const wasActive = sessionStore.getActiveId() === session.id
+      const didDelete = sessionStore.delete(session.id)
+      if (!didDelete) return
+      if (wasActive) {
+        const next = sessionStore.getActiveId()
+        window.dispatchEvent(new CustomEvent('hideout:session-selected', { detail: next }))
       }
     })
 
@@ -1059,6 +1105,45 @@ function wireChat(): void {
     if (event.key === 'Escape' && sending) {
       abort?.abort()
     }
+  })
+
+  // New chat or session switch: clear or restore thread
+  window.addEventListener('hideout:session-selected', (e: Event) => {
+    const id = (e as CustomEvent<string | null>).detail
+    if (id === null) {
+      // New chat — clear history and visual thread, abort any inflight
+      abort?.abort()
+      history.clear()
+      column.replaceChildren()
+      return
+    }
+    const session = sessionStore.get(id)
+    if (!session) return
+    // Restore messages for the selected session
+    history.clear()
+    for (const m of session.messages) history.push(m)
+    column.replaceChildren()
+    // Re-render bubbles (reuse simple rendering; reasoning not restored)
+    for (const m of history.all) {
+      if (m.role === 'user') {
+        const wrap = document.createElement('div')
+        wrap.className = 'flex w-full justify-end'
+        const bubble = document.createElement('div')
+        bubble.className = 'max-w-[78%] whitespace-pre-wrap break-words rounded-2xl px-4 py-3 text-sm leading-relaxed shadow-sm self-end bg-accent text-white'
+        bubble.textContent = m.content
+        wrap.appendChild(bubble)
+        column.appendChild(wrap)
+      } else if (m.role === 'assistant') {
+        const wrap = document.createElement('div')
+        wrap.className = 'flex w-full flex-col gap-4'
+        const answerEl = document.createElement('div')
+        answerEl.className = 'w-full whitespace-pre-wrap break-words text-sm leading-relaxed text-ink'
+        answerEl.textContent = m.content
+        wrap.appendChild(answerEl)
+        column.appendChild(wrap)
+      }
+    }
+    thread.scrollTop = thread.scrollHeight
   })
 
   // Abort on navigation/unload

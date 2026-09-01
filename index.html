@@ -23,7 +23,7 @@
         <div id="sidebar-scroll" class="min-h-0 flex-1 overflow-y-auto overscroll-contain px-1.5 pb-3 pt-[calc(var(--vantail-titlebar-height,36px)+0.75rem)]">
           <section id="pinned-section" class="sidebar-section mb-5" aria-label="Pinned chats">
             <button type="button" class="sidebar-heading w-full" data-collapse-toggle="pinned" aria-expanded="true" aria-controls="pinned-list">
-              <span>Pinned</span>
+              <span>Angeheftet</span>
               <i data-lucide="chevron-down" class="sidebar-chevron size-3.5 shrink-0"></i>
             </button>
             <div id="pinned-list" class="sidebar-list"></div>
@@ -124,6 +124,14 @@
               <i class="size-3.5" data-lucide="x"></i>
             </button>
           </div>
+          <button
+            id="new-chat-button"
+            type="button"
+            aria-label="New chat"
+            class="titlebar-group grid size-10 shrink-0 place-items-center rounded-full border border-line/70 bg-card/80 text-dim backdrop-blur-md transition-colors duration-150 hover:bg-black/10 hover:text-ink active:bg-black/15 dark:hover:bg-white/10 dark:hover:text-ink dark:active:bg-white/15"
+          >
+            <i class="size-5" data-lucide="square-pen"></i>
+          </button>
         </div>
       </header>
       <main class="flex min-h-0 flex-1 flex-col p-6">
