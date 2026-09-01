@@ -103,12 +103,15 @@
       </header>
       <main class="flex min-h-0 flex-1 flex-col p-6">
         <!-- Chat composer, docked to the bottom of the content area and always
-             centred horizontally - a frosted-glass pill in the same style as
-             the title-bar search (titlebar-group + card/line palette), with an
-             attachment control, a free-text field and a voice-input control.
-             Empty by design: no dummy data, and the message goes nowhere yet. -->
-        <div class="mt-auto flex shrink-0 justify-center pt-8">
-          <div id="composer" class="titlebar-group flex min-h-12 w-full max-w-xl items-center gap-2 rounded-3xl border border-line/70 bg-card/80 px-2 backdrop-blur-md">
+             centred horizontally. Split like the title-bar controls above:
+             the field stands alone in a pill of its own, with the
+             attachment/tools controls in a pill on the left and the voice
+             and send buttons as standalone circles on the right, each
+             separated by the title-bar's gap. Everything is 48px tall and
+             centred on one row. Empty by design: no dummy data, and the
+             message goes nowhere yet. -->
+        <div class="mx-auto mt-auto flex w-full max-w-2xl shrink-0 items-center gap-3 pt-8">
+          <div class="titlebar-group flex h-12 shrink-0 items-center gap-2 rounded-full border border-line/70 bg-card/80 px-2 backdrop-blur-md">
             <button
               type="button"
               aria-label="Add attachment"
@@ -123,29 +126,31 @@
             >
               <i class="size-5" data-lucide="wrench"></i>
             </button>
+          </div>
+          <div id="composer" class="titlebar-group flex min-h-12 flex-1 items-center rounded-3xl border border-line/70 bg-card/80 backdrop-blur-md">
             <textarea
               id="composer-field"
               rows="1"
               wrap="soft"
               placeholder="Ask anything"
               aria-label="Message"
-              class="min-w-0 flex-1 resize-none overflow-y-auto break-words border-0 bg-transparent py-5 text-sm text-ink caret-ink outline-none placeholder:text-dim"
+              class="min-w-0 flex-1 resize-none overflow-y-auto break-words border-0 bg-transparent px-3 py-3.5 text-sm text-ink caret-ink outline-none placeholder:text-dim"
             ></textarea>
-            <button
-              type="button"
-              aria-label="Voice input"
-              class="grid size-9 shrink-0 place-items-center rounded-full text-dim transition-colors duration-150 hover:bg-black/10 hover:text-ink active:bg-black/15 dark:hover:bg-white/10 dark:hover:text-ink dark:active:bg-white/15"
-            >
-              <i class="size-5" data-lucide="mic"></i>
-            </button>
-            <button
-              type="button"
-              aria-label="Send message"
-              class="grid size-9 shrink-0 place-items-center rounded-full bg-accent text-white transition-colors duration-150 hover:bg-accent/90 active:bg-accent/80"
-            >
-              <i class="size-5" data-lucide="send-horizontal"></i>
-            </button>
           </div>
+          <button
+            type="button"
+            aria-label="Voice input"
+            class="titlebar-group grid size-12 shrink-0 place-items-center rounded-full border border-line/70 bg-card/80 text-dim backdrop-blur-md transition-colors duration-150 hover:bg-black/10 hover:text-ink active:bg-black/15 dark:hover:bg-white/10 dark:hover:text-ink dark:active:bg-white/15"
+          >
+            <i class="size-5" data-lucide="mic"></i>
+          </button>
+          <button
+            type="button"
+            aria-label="Send message"
+            class="titlebar-group grid size-12 shrink-0 place-items-center rounded-full border border-line/70 bg-card/80 text-dim backdrop-blur-md transition-colors duration-150 hover:bg-black/10 hover:text-ink active:bg-black/15 dark:hover:bg-white/10 dark:hover:text-ink dark:active:bg-white/15"
+          >
+            <i class="size-5" data-lucide="send-horizontal"></i>
+          </button>
         </div>
       </main>
     </div>

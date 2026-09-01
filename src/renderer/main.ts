@@ -304,7 +304,7 @@ function wireComposer(): void {
   let pinnedToBottom = true
 
   const resize = () => {
-    const maxHeight = Math.min(120, Math.round(window.innerHeight * 0.4))
+    const maxHeight = Math.min(108, Math.round(window.innerHeight * 0.4))
     // Reset first so the height can shrink again when text is removed.
     field.style.height = 'auto'
     field.style.height = `${Math.min(field.scrollHeight, maxHeight)}px`
