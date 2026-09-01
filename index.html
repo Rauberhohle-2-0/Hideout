@@ -14,27 +14,31 @@
          animated on collapse. -->
     <!-- Starts collapsed: opt-in space the user opens via the toggle in the
          title bar or by dragging the resize handle. -->
-    <aside id="sidebar" class="collapsed glass-pane h-full shrink-0 overflow-hidden border-r border-line/60 transition-[width] duration-200 ease-out">
+    <aside id="sidebar" class="collapsed h-full shrink-0 overflow-hidden border-r border-black/[0.08] bg-[#fbfbfb] transition-[width] duration-200 ease-out dark:border-white/[0.08] dark:bg-[#1c1c1c]">
       <div class="flex h-full w-full min-w-0 flex-col">
-        <!-- Session lists: scrollable region. Two groups, pinned on top,
-             then normal chats. Both rendered by src/renderer/main.ts from
-             the sessionStore; search filters both. The top padding clears
-             the macOS traffic lights, which float over the sidebar's
-             leading edge (same --vantail-titlebar-height the model
-             selector accounts for). -->
-        <div id="sidebar-scroll" class="min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 pb-2 pt-[calc(var(--vantail-titlebar-height,36px)+0.75rem)]">
-          <section id="pinned-section" class="mb-6" aria-label="Pinned chats">
-            <h2 class="sidebar-heading">Pinned</h2>
+        <!-- Session lists: scrollable region. Two groups, pinned on top
+              then recent chats — rebuilt to match the screenshot:
+              plain white pane, muted headings ("Angeheftet"/"Aktuelle"),
+              pinned rows with bubble outline, recent rows plain text. -->
+        <div id="sidebar-scroll" class="min-h-0 flex-1 overflow-y-auto overscroll-contain px-1.5 pb-3 pt-[calc(var(--vantail-titlebar-height,36px)+0.75rem)]">
+          <section id="pinned-section" class="sidebar-section mb-5" aria-label="Pinned chats">
+            <button type="button" class="sidebar-heading w-full" data-collapse-toggle="pinned" aria-expanded="true" aria-controls="pinned-list">
+              <span>Pinned</span>
+              <i data-lucide="chevron-down" class="sidebar-chevron size-3.5 shrink-0"></i>
+            </button>
             <div id="pinned-list" class="sidebar-list"></div>
-            <p id="pinned-empty" class="px-3 py-1.5 text-xs text-dim/70" hidden>No pinned chats</p>
+            <p id="pinned-empty" class="px-3 py-1.5 text-xs text-dim/70" hidden>Keine angehefteten Chats</p>
           </section>
-          <section id="chats-section" aria-label="Chats">
-            <h2 class="sidebar-heading">Chats</h2>
+          <section id="chats-section" class="sidebar-section" aria-label="Chats">
+            <button type="button" class="sidebar-heading w-full" data-collapse-toggle="recent" aria-expanded="true" aria-controls="chats-list">
+              <span>Aktuelle</span>
+              <i data-lucide="chevron-down" class="sidebar-chevron size-3.5 shrink-0"></i>
+            </button>
             <div id="chats-list" class="sidebar-list"></div>
-            <p id="chats-empty" class="px-3 py-1.5 text-xs text-dim/70" hidden>No chats yet</p>
+            <p id="chats-empty" class="px-3 py-1.5 text-xs text-dim/70" hidden>Noch keine Chats</p>
           </section>
-          <p id="sidebar-empty" class="px-3 py-6 text-center text-sm text-dim/70" hidden>No chats yet — start a conversation and it will appear here.</p>
-          <p id="sidebar-no-results" class="px-3 py-6 text-center text-sm text-dim/70" hidden>No matches</p>
+          <p id="sidebar-empty" class="px-3 py-6 text-center text-sm text-dim/70" hidden>Noch keine Chats — starte eine Unterhaltung.</p>
+          <p id="sidebar-no-results" class="px-3 py-6 text-center text-sm text-dim/70" hidden>Keine Treffer</p>
         </div>
       </div>
     </aside>
@@ -128,13 +132,7 @@
              empty by design (no dummy data) and invisible until the first
              message; it scrolls once the conversation outgrows the window.
              The composer row below stays docked to the bottom. -->
-        <section
-          id="chat-thread"
-          role="log"
-          aria-label="Chat"
-          aria-live="polite"
-          class="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain"
-        >
+        <section id="chat-thread" role="log" aria-label="Chat" aria-live="polite" class="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain">
           <!-- Message column: mirrors the composer's max-w-2xl so the
                conversation shares its centre axis. `mx-auto` keeps it
                horizontally centred while the chat starts at the top, just

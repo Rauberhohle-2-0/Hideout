@@ -5,14 +5,14 @@
  * in index.html, then wire up the custom title bar, sidebar and theme.
  */
 import { appWindow, titleBarMetrics } from '@vantail/api'
-import { ChevronDown, createIcons, MessageSquare, Mic, Moon, PanelLeft, Pencil, Pin, PinOff, Plus, Search, SendHorizontal, Settings, Sun, Trash2, Wrench, X } from 'lucide'
+import { ChevronDown, createIcons, MessageCircle, Mic, Moon, PanelLeft, Pencil, Pin, PinOff, Plus, Search, SendHorizontal, Settings, Sun, Trash2, Wrench, X } from 'lucide'
 import { ChatHistory, chatStream, getSelectedModel, setSelectedModel, type SelectedModel } from './chat.ts'
 import { sessionStore, type ChatSession } from './sessions.ts'
 
 // Hydrate the Lucide icons declared as `<i data-lucide="…">` in index.html.
 // The runtime swaps each placeholder for its SVG, keeping the element's own
 // class and data-* attributes (e.g. `data-theme-icon`, `hidden`).
-createIcons({ icons: { ChevronDown, MessageSquare, Mic, Moon, PanelLeft, Pencil, Pin, PinOff, Plus, Search, SendHorizontal, Settings, Sun, Trash2, Wrench, X } })
+createIcons({ icons: { ChevronDown, MessageCircle, Mic, Moon, PanelLeft, Pencil, Pin, PinOff, Plus, Search, SendHorizontal, Settings, Sun, Trash2, Wrench, X } })
 
 // How far the macOS traffic lights settle below the bar's vertical centre, so
 // the sidebar's toggle can sit on the very same row. One source of truth for
@@ -404,7 +404,55 @@ function wireSidebarResize(): void {
   handle.addEventListener('pointercancel', endDrag)
 }
 
+/**
+ * Collapsible sidebar sections — “Angeheftet” (pinned) and “Aktuelle”
+ * (recent). Each heading is a <button> with `data-collapse-toggle` that
+ * toggles `is-collapsed` on its parent `.sidebar-section`. State persists
+ * in localStorage so the user’s choice survives reloads. Respects the
+ * existing `hidden` logic in `wireSidebarSessions` (search/empty): the
+ * collapse only hides the list, not the whole section when it would be
+ * hidden anyway.
+ */
+function wireSidebarSectionsCollapsible(): void {
+  const toggles = Array.from(document.querySelectorAll<HTMLButtonElement>('[data-collapse-toggle]'))
+  if (toggles.length === 0) return
+
+  const storageKey = (id: string) => `hideout.sidebar.collapsed.${id}`
+
+  const apply = (btn: HTMLButtonElement, collapsed: boolean) => {
+    const section = btn.closest<HTMLElement>('.sidebar-section')
+    if (!section) return
+    section.classList.toggle('is-collapsed', collapsed)
+    btn.setAttribute('aria-expanded', String(!collapsed))
+    // Chevron rotation is pure CSS on .is-collapsed; no JS needed there.
+  }
+
+  for (const btn of toggles) {
+    const id = btn.dataset.collapseToggle ?? ''
+    if (!id) continue
+
+    // Restore persisted state
+    let collapsed = false
+    try {
+      collapsed = localStorage.getItem(storageKey(id)) === '1'
+    } catch {}
+    apply(btn, collapsed)
+
+    btn.addEventListener('click', () => {
+      const section = btn.closest<HTMLElement>('.sidebar-section')
+      if (!section) return
+      const next = !section.classList.contains('is-collapsed')
+      apply(btn, next)
+      try {
+        if (next) localStorage.setItem(storageKey(id), '1')
+        else localStorage.removeItem(storageKey(id))
+      } catch {}
+    })
+  }
+}
+
 wireSidebarResize()
+wireSidebarSectionsCollapsible()
 wireSidebarSessions()
 
 /**
@@ -436,9 +484,15 @@ function wireSidebarSessions(): void {
     row.setAttribute('aria-label', session.title)
     row.setAttribute('aria-selected', String(isActive))
 
-    const icon = document.createElement('i')
-    icon.className = 'session-icon size-4 shrink-0'
-    icon.setAttribute('data-lucide', 'message-square')
+    // Screenshot: pinned rows have a hollow bubble (message-circle) at the
+    // leading edge; recent ("Aktuelle") rows are plain text with no icon.
+    // We add the icon conditionally so recent rows align flush left.
+    if (session.pinned) {
+      const icon = document.createElement('i')
+      icon.className = 'session-icon size-[18px] shrink-0'
+      icon.setAttribute('data-lucide', 'message-circle')
+      row.appendChild(icon)
+    }
 
     const textCol = document.createElement('div')
     textCol.className = 'min-w-0 flex-1'
@@ -480,7 +534,6 @@ function wireSidebarSessions(): void {
     actions.appendChild(pinBtn)
     actions.appendChild(deleteBtn)
 
-    row.appendChild(icon)
     row.appendChild(textCol)
     row.appendChild(actions)
 
@@ -557,8 +610,9 @@ function wireSidebarSessions(): void {
     for (const s of pinned) pinnedList.appendChild(createRow(s, s.id === activeId))
     for (const s of recent) chatsList.appendChild(createRow(s, s.id === activeId))
 
-    // Hydrate icons for new rows
-    createIcons({ icons: { MessageSquare, Pin, PinOff, Trash2 } })
+    // Hydrate icons for new rows — recent rows have no bubble icon; pinned
+    // rows use MessageCircle as in the screenshot.
+    createIcons({ icons: { MessageCircle, Pin, PinOff, Trash2 } })
 
     // Section visibility
     const totalFiltered = pinned.length + recent.length
