@@ -158,21 +158,21 @@ body.sidebar-collapsed #model-selector {
  * hard-coded backdrop gradients get their dark counterparts here.
  */
 :root.dark {
-  --color-ink: #e2e8f0;
-  --color-dim: #94a3b8;
-  --color-canvas: #0f172a;
-  --color-card: #1e293b;
-  --color-line: #334155;
+  --color-ink: #e5e5e5;
+  --color-dim: #a3a3a3;
+  --color-canvas: #1e1e1e;
+  --color-card: #2a2a2a;
+  --color-line: #3a3a3a;
 }
 
 :root.dark body {
   background:
     radial-gradient(
       40rem 30rem at -10% 0%,
-      color-mix(in oklab, var(--color-accent) 14%, transparent),
+      color-mix(in oklab, var(--color-accent) 6%, transparent),
       transparent 60%
     ),
-    linear-gradient(180deg, #16203a 0%, var(--color-canvas) 50%, #0a1122 100%);
+    linear-gradient(180deg, #262626 0%, var(--color-canvas) 50%, #171717 100%);
 }
 
 :root.dark .glass-pane {
