@@ -22,6 +22,10 @@ const app = createApp();
 const server = Bun.serve({
   hostname: "127.0.0.1",
   port: honoPort,
+  // SSE / chat streaming can be idle between tokens; Bun's default
+  // idleTimeout (10s) closes the socket mid-stream → Vite logs
+  // "http proxy error: socket hang up". 255 is Bun's max; 0 disables.
+  idleTimeout: 255,
   fetch: app.fetch,
 });
 

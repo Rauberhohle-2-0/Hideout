@@ -102,6 +102,26 @@
         </div>
       </header>
       <main class="flex min-h-0 flex-1 flex-col p-6">
+        <!-- Chat thread: the transparent region where the conversation will
+             render, filling the content area above the composer. Deliberately
+             empty by design (no dummy data) and invisible until the first
+             message; it scrolls once the conversation outgrows the window.
+             The composer row below stays docked to the bottom. -->
+        <section
+          id="chat-thread"
+          role="log"
+          aria-label="Chat"
+          aria-live="polite"
+          class="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain"
+        >
+          <!-- Centered message column: mirrors the composer's max-w-2xl so the
+               conversation shares its centre axis. `m-auto` centres the
+               column in the region while the chat is short; once it
+               outgrows the window the auto margins collapse and the thread
+               scrolls from the top as usual. Empty by design — no dummy
+               data, messages land here at runtime. -->
+          <div id="chat-column" class="m-auto flex w-full max-w-2xl flex-col gap-3 p-2"></div>
+        </section>
         <!-- Chat composer, docked to the bottom of the content area and always
              centred horizontally. Split like the title-bar controls above:
              the field stands alone in a pill of its own, with the
@@ -110,7 +130,7 @@
              separated by the title-bar's gap. Everything is 48px tall and
              centred on one row. Empty by design: no dummy data, and the
              message goes nowhere yet. -->
-        <div class="mx-auto mt-auto flex w-full max-w-2xl shrink-0 items-center gap-3 pt-8">
+        <div class="mx-auto flex w-full max-w-2xl shrink-0 items-center gap-3 pt-8">
           <div class="titlebar-group flex h-12 shrink-0 items-center gap-2 rounded-full border border-line/70 bg-card/80 px-2 backdrop-blur-md">
             <button
               type="button"

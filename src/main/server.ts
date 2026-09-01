@@ -8,6 +8,7 @@
 import { Hono } from "hono";
 import { escape } from "../shared/escape.ts";
 import {
+  CHAT_ROUTE,
   DEFAULT_NAME,
   GREET_ROUTE,
   MODELS_ROUTE,
@@ -15,6 +16,7 @@ import {
   PROVIDERS_ROUTE,
   TIP_ROUTE,
 } from "../shared/constants.ts";
+import { validateChatRequest } from "../shared/chat.ts";
 import { greeting, tip } from "./views.ts";
 import { OllamaProvider } from "../providers/implementations/ollama.ts";
 import { OpenAIProvider } from "../providers/implementations/openai.ts";
@@ -231,6 +233,105 @@ export function createApp(options: CreateAppOptions = {}) {
       await credentialStore.delete("anthropic").catch(() => {});
     }
     return c.json({ providerId, deleted, hasKey: false, maskedKey: null });
+  });
+
+  // ── Chat — proxy to the selected provider/model ─────────────────────
+  // The renderer posts `{ providerId, model, messages, stream? }`.
+  // Non-streaming returns `{ content, model, providerId, finishReason }`.
+  // Streaming returns SSE `text/event-stream` with `data: {"delta":"..."}` lines
+  // and a final `data: [DONE]`. Keys never leave the sidecar — the provider
+  // fetches them from `credentialStore` at call time.
+
+  app.post(CHAT_ROUTE, async (c) => {
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ error: "Invalid JSON" }, 400);
+    }
+    const err = validateChatRequest(body);
+    if (err) return c.json({ error: err }, 400);
+    const { providerId, model, messages, stream } = body as {
+      providerId: string;
+      model: string;
+      messages: Array<{ role: "user" | "assistant" | "system"; content: string }>;
+      stream?: boolean;
+    };
+
+    const provider = registry.get(providerId);
+    if (!provider) return c.json({ error: `Unknown provider "${providerId}"` }, 400);
+
+    // Optional guard: if provider reports disconnected, fail fast with a clear error.
+    // Do not treat as 500 — the UI can surface "provider not connected".
+    try {
+      const available = await provider.isAvailable();
+      if (!available) {
+        return c.json({ error: `Provider "${providerId}" is not available` }, 503);
+      }
+    } catch {
+      // isAvailable threw — continue to chat and let it surface the error
+    }
+
+    if (stream) {
+      // Stream as SSE. Each chunk is `data: {"delta":"..."}\n\n`, closed with `data: [DONE]`.
+      const encoder = new TextEncoder();
+      const readable = new ReadableStream<Uint8Array>({
+        async start(controller) {
+          try {
+            const iterator = provider.chatStream
+              ? provider.chatStream({ model, messages, signal: c.req.raw.signal })
+              : (async function* () {
+                  const res = await provider.chat({ model, messages, signal: c.req.raw.signal });
+                  if (res.content) yield res.content;
+                })();
+            for await (const chunk of iterator) {
+              if (c.req.raw.signal.aborted) break;
+              const line = `data: ${JSON.stringify({ delta: chunk })}\n\n`;
+              controller.enqueue(encoder.encode(line));
+            }
+            controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+            controller.close();
+          } catch (e) {
+            const msg = e instanceof Error ? e.message : String(e);
+            const line = `data: ${JSON.stringify({ error: msg })}\n\n`;
+            try {
+              controller.enqueue(encoder.encode(line));
+            } catch {
+              // controller already closed
+            }
+            try {
+              controller.close();
+            } catch {}
+          }
+        },
+        cancel() {
+          // client disconnected — provider's signal will abort if wired
+        },
+      });
+      return new Response(readable, {
+        headers: {
+          "Content-Type": "text/event-stream; charset=utf-8",
+          "Cache-Control": "no-cache, no-transform",
+          Connection: "keep-alive",
+          "X-Accel-Buffering": "no",
+        },
+      });
+    }
+
+    try {
+      const result = await provider.chat({ model, messages, signal: c.req.raw.signal });
+      return c.json({
+        content: result.content,
+        model: result.model,
+        providerId: result.providerId,
+        finishReason: result.finishReason ?? null,
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      // Map common auth errors to 502/401 for nicer UI handling
+      const status = /not configured|api key|unauthorized|401/i.test(msg) ? 401 : 502;
+      return c.json({ error: msg }, status);
+    }
   });
 
   return app;

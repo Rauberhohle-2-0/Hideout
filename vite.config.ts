@@ -12,10 +12,19 @@ export default defineConfig({
     // The window's page is served by Vite; the htmx endpoints live on the
     // Hono sidecar. Proxying makes them same-origin for the webview, so the
     // page never leaves its own origin.
+    // `timeout`/`proxyTimeout` are raised for SSE (`POST /api/chat` with
+    // `stream:true`): Bun's default idleTimeout (10s) and http-proxy's
+    // default would otherwise close an idle token gap with `socket hang up`.
     proxy: {
       "/greet": `http://127.0.0.1:${honoPort}`,
       "/tip": `http://127.0.0.1:${honoPort}`,
-      "/api": `http://127.0.0.1:${honoPort}`,
+      "/api": {
+        target: `http://127.0.0.1:${honoPort}`,
+        changeOrigin: true,
+        // 0 = no timeout for streaming; Vite 5 forwards to http-proxy
+        timeout: 0,
+        proxyTimeout: 0,
+      },
     },
   },
 });

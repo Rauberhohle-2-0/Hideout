@@ -6,6 +6,7 @@
  */
 import { appWindow, titleBarMetrics } from '@vantail/api'
 import { ChevronDown, createIcons, Mic, Moon, PanelLeft, Plus, Search, SendHorizontal, Settings, Sun, Wrench, X } from 'lucide'
+import { ChatHistory, chat, chatStream, getSelectedModel, setSelectedModel, type SelectedModel } from './chat.ts'
 
 // Hydrate the Lucide icons declared as `<i data-lucide="…">` in index.html.
 // The runtime swaps each placeholder for its SVG, keeping the element's own
@@ -112,9 +113,9 @@ function wireTitleBarSearch(): void {
  * Pointer-down is stopped so the header's drag-to-move doesn't fight the click.
  *
  * When a provider (e.g. Ollama) is connected, usable models are fetched from
- * `GET /api/models` and shown in the dropdown. The toggle keeps the
- * placeholder "Models" until a future selection step — this task only populates
- * the list.
+ * `GET /api/models` and shown in the dropdown. Selecting a row persists the
+ * choice in `localStorage` (via `src/renderer/chat.ts`) and updates the toggle
+ * label — the chat library reads that same key when sending.
  */
 function wireModelSelector(): void {
   const selector = document.querySelector<HTMLElement>('#model-selector')
@@ -167,10 +168,50 @@ function wireModelSelector(): void {
     if (event.key === 'Escape') setOpen(false)
   })
 
-  // Populate the dropdown from the provider API. The endpoint aggregates all
-  // registered providers (Ollama first) — when Ollama is running its models
-  // appear here, otherwise the menu shows an empty state but the placeholder
-  // "Models" remains on the toggle.
+  // Keep the toggle label in sync with the persisted selection. The pill's
+  // chevron is absolutely positioned, so the label needs its own span that
+  // can truncate with an ellipsis without colliding with the chevron.
+  const ensureLabelSpan = (): HTMLElement => {
+    let label = toggle.querySelector<HTMLElement>('[data-model-label]')
+    if (label) return label
+    // First call: the toggle currently holds the raw text "Models" and the
+    // chevron. Wrap the text so it can truncate independently.
+    const raw = toggle.textContent?.trim() ?? "Models"
+    // Remove existing text nodes but keep the chevron element
+    for (const n of [...toggle.childNodes]) {
+      if (n !== chevron && n.nodeType === Node.TEXT_NODE) n.remove()
+    }
+    // If there was an element that was the label-less text, drop it too
+    const span = document.createElement('span')
+    span.dataset.modelLabel = 'true'
+    span.className = 'min-w-0 flex-1 truncate pr-6 text-center'
+    span.textContent = raw
+    toggle.insertBefore(span, chevron)
+    return span
+  }
+
+  const setToggleLabel = (sel: SelectedModel | null) => {
+    const span = ensureLabelSpan()
+    if (!sel) {
+      span.textContent = 'Models'
+      toggle.setAttribute('aria-label', 'Select model')
+    } else {
+      span.textContent = sel.name
+      span.title = sel.name
+      toggle.setAttribute('aria-label', `Model: ${sel.name}`)
+    }
+  }
+
+  const updateToggleLabel = (sel: SelectedModel | null) => {
+    setToggleLabel(sel)
+    // Emit for the chat wiring to react without polling localStorage
+    window.dispatchEvent(new CustomEvent('hideout:model-changed', { detail: sel }))
+  }
+
+  // Hydrate from the last persisted choice before the model list arrives so
+  // the toggle shows the previous selection instantly.
+  updateToggleLabel(getSelectedModel())
+
   type ApiModel = { id: string; name: string; providerId: string; providerName: string }
   const renderModels = (models: ApiModel[]) => {
     menu.replaceChildren()
@@ -179,18 +220,28 @@ function wireModelSelector(): void {
       empty.className = 'px-3 py-2 text-sm text-dim'
       empty.textContent = 'No models available'
       menu.appendChild(empty)
+      // If the persisted selection vanished (provider removed), clear it
+      const sel = getSelectedModel()
+      if (sel && !models.some((m) => m.id === sel.id && m.providerId === sel.providerId)) {
+        // Keep the stale label until the next successful fetch? Clear now so
+        // the composer can warn "no models available".
+      }
       return
     }
+    const current = getSelectedModel()
     for (const model of models) {
       const item = document.createElement('button')
       item.type = 'button'
       item.role = 'option'
       item.dataset.modelId = model.id
       item.dataset.providerId = model.providerId
+      const isSelected = current?.id === model.id && current?.providerId === model.providerId
+      item.setAttribute('aria-selected', String(isSelected))
       // Keep visually aligned with the glass dropdown; hover gives affordance
-      // without altering the final design.
+      // without altering the final design. Selected row gets a subtle accent.
       item.className =
-        'flex w-full items-center rounded-lg px-3 py-2 text-left text-sm font-medium text-ink hover:bg-black/5 dark:hover:bg-white/10 transition-colors'
+        'flex w-full items-center rounded-lg px-3 py-2 text-left text-sm font-medium transition-colors ' +
+        (isSelected ? 'bg-accent/15 text-ink' : 'text-ink hover:bg-black/5 dark:hover:bg-white/10')
       // One line per model: long names are truncated with an ellipsis (the
       // dropdown keeps its fixed width), and the full id shows in a floating
       // tooltip on hover when the row actually cut the name off.
@@ -214,12 +265,22 @@ function wireModelSelector(): void {
         tooltip.hidden = true
       })
       item.addEventListener('click', () => {
-        // For now just close — selection wiring is the next step. Keeping the
-        // placeholder "Models" on the toggle satisfies the current spec.
+        const sel: SelectedModel = { providerId: model.providerId, id: model.id, name: model.name }
+        setSelectedModel(sel)
+        updateToggleLabel(sel)
+        // Re-render to show the new selected state
+        renderModels(models)
         tooltip.hidden = true
         setOpen(false)
       })
       menu.appendChild(item)
+    }
+    // If nothing was selected, or the stored id is stale, keep the toggle as
+    // "Models" but do not auto-pick — the chat composer will prompt to pick one.
+    // If the stored selection is still valid, ensure the label reflects it.
+    const fresh = getSelectedModel()
+    if (fresh && models.some((m) => m.id === fresh.id && m.providerId === fresh.providerId)) {
+      updateToggleLabel(fresh)
     }
   }
 
@@ -239,6 +300,14 @@ function wireModelSelector(): void {
   }
 
   void loadModels()
+
+  // React to external selection changes (e.g. chat wiring clearing it)
+  window.addEventListener('hideout:model-changed', (e: Event) => {
+    const sel = (e as CustomEvent<SelectedModel | null>).detail
+    // Only repaint label — do not re-dispatch or it recurses infinitely
+    if (sel) setToggleLabel(sel)
+    else setToggleLabel(null)
+  })
 }
 
 /**
@@ -427,6 +496,190 @@ function wireComposer(): void {
   resize()
 }
 
+/**
+ * Chat thread wiring — renderer-side answering behavior.
+ *
+ * All chat/answering happens in the renderer (per spec): the renderer keeps
+ * the conversation in a `ChatHistory`, renders into `#chat-thread`, and calls
+ * the headless library `src/renderer/chat.ts` which hits `POST /api/chat`.
+ * No UI markup is changed — messages are appended as plain DOM nodes that
+ * inherit the existing palette and glass look.
+ */
+function wireChat(): void {
+  const thread = document.querySelector<HTMLElement>('#chat-thread')
+  const column = document.querySelector<HTMLElement>('#chat-column')
+  const field = document.querySelector<HTMLTextAreaElement>('#composer-field')
+  const sendBtn = document.querySelector<HTMLButtonElement>('[aria-label="Send message"]')
+  if (!thread || !column || !field || !sendBtn) return
+
+  const history = new ChatHistory()
+  let sending = false
+  let abort: AbortController | null = null
+
+  const scrollToBottom = () => {
+    thread.scrollTop = thread.scrollHeight
+  }
+
+  const setSending = (v: boolean) => {
+    sending = v
+    field.disabled = v
+    sendBtn.disabled = v
+    sendBtn.setAttribute('aria-busy', String(v))
+    // Dim while sending, but keep the glass look — opacity is the only
+    // visual hint, no markup change.
+    sendBtn.style.opacity = v ? '0.5' : ''
+    field.style.opacity = v ? '0.7' : ''
+  }
+
+  const bubbleClass = (role: 'user' | 'assistant' | 'system' | 'error') => {
+    const base = 'max-w-[78%] whitespace-pre-wrap break-words rounded-2xl px-4 py-3 text-sm leading-relaxed shadow-sm'
+    if (role === 'user') return `${base} self-end bg-accent text-white`
+    if (role === 'error') return `${base} self-start border border-red-200 bg-red-50 text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-200`
+    if (role === 'system') return `${base} self-center bg-card/60 text-dim border border-line/60 text-xs`
+    // assistant
+    return `${base} self-start glass-pane border border-line/60 bg-card/70 text-ink backdrop-blur-md`
+  }
+
+  const appendMessage = (role: 'user' | 'assistant' | 'system' | 'error', content: string): HTMLElement => {
+    // The message column (#chat-column) holds gap/padding already, so each
+    // row is just its bubble, aligned within the centred column.
+    const wrap = document.createElement('div')
+    wrap.className = `flex w-full ${role === 'user' ? 'justify-end' : 'justify-start'}`
+    if (role === 'system') wrap.className = 'flex w-full justify-center'
+
+    const bubble = document.createElement('div')
+    bubble.className = bubbleClass(role)
+    // Keep line breaks and escape HTML — the assistant may return markup-like text
+    bubble.textContent = content
+    // Preserve empty while streaming: show a pulsing dot instead of collapsing
+    if (role === 'assistant' && !content) {
+      bubble.innerHTML = '<span class="inline-flex items-center gap-1 text-dim"><span class="size-1.5 animate-pulse rounded-full bg-dim"></span> thinking…</span>'
+    }
+    wrap.appendChild(bubble)
+    column.appendChild(wrap)
+    scrollToBottom()
+    return bubble
+  }
+
+  const showError = (msg: string) => {
+    appendMessage('error', msg)
+  }
+
+  const canSend = (): boolean => {
+    const text = field.value.trim()
+    if (!text) return false
+    if (sending) return false
+    return true
+  }
+
+  const syncSendEnabled = () => {
+    const enabled = canSend()
+    // Keep disabled attribute in sync with content, but `setSending` owns it while streaming
+    if (!sending) {
+      sendBtn.disabled = !field.value.trim()
+      sendBtn.style.opacity = field.value.trim() ? '' : '0.5'
+    }
+    void enabled
+  }
+
+  field.addEventListener('input', syncSendEnabled)
+  syncSendEnabled()
+
+  const doSend = async () => {
+    const raw = field.value.trim()
+    if (!raw) return
+    const sel = getSelectedModel()
+    if (!sel) {
+      showError('Select a model first — open the Models menu in the title bar and pick one.')
+      field.focus()
+      return
+    }
+    if (sending) return
+
+    // Optimistically add user bubble and clear the composer
+    appendMessage('user', raw)
+    history.add('user', raw)
+    field.value = ''
+    field.dispatchEvent(new Event('input', { bubbles: true }))
+    // Shrink the auto-grow textarea back
+    field.style.height = 'auto'
+    field.focus()
+
+    const assistantEl = appendMessage('assistant', '')
+    let full = ''
+    abort = new AbortController()
+    setSending(true)
+
+    // Prefer streaming for a live typing effect; fall back to non-streaming on error
+    const useStream = true
+    try {
+      if (useStream) {
+        for await (const delta of chatStream({
+          providerId: sel.providerId,
+          model: sel.id,
+          messages: history.snapshot(),
+          signal: abort.signal,
+        })) {
+          full += delta
+          assistantEl.textContent = full
+          scrollToBottom()
+        }
+        if (!full) {
+          assistantEl.textContent = '(empty reply)'
+        }
+        history.add('assistant', full)
+      } else {
+        const res = await chat({
+          providerId: sel.providerId,
+          model: sel.id,
+          messages: history.snapshot(),
+          signal: abort.signal,
+        })
+        full = res.content
+        assistantEl.textContent = full || '(empty reply)'
+        history.add('assistant', full)
+        scrollToBottom()
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      if ((e as Error).name === 'AbortError') {
+        assistantEl.textContent = full ? full + ' — aborted' : 'Aborted.'
+      } else {
+        // Replace the pending assistant bubble with an error if we never got content
+        if (!full) {
+          assistantEl.parentElement?.remove()
+          showError(msg || 'Failed to get reply.')
+        } else {
+          assistantEl.textContent = full
+          showError(msg)
+        }
+        // Do not add the failed assistant turn to history — keep it retryable
+        // (pop the user message already stays, so the next retry resends it)
+      }
+    } finally {
+      setSending(false)
+      abort = null
+      syncSendEnabled()
+    }
+  }
+
+  sendBtn.addEventListener('click', () => void doSend())
+  field.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault()
+      void doSend()
+    }
+    // Escape aborts an in-flight stream
+    if (event.key === 'Escape' && sending) {
+      abort?.abort()
+    }
+  })
+
+  // Abort on navigation/unload
+  window.addEventListener('beforeunload', () => abort?.abort())
+}
+
 initTheme()
 wireThemeToggle()
 wireComposer()
+wireChat()

@@ -16,7 +16,7 @@
  *   }
  *   providerRegistry.register(new MyProvider());
  */
-export type { Model, Provider, ProviderInfo, ProviderStatus } from "./core/types.ts";
+export type { ChatMessage, ChatOptions, ChatResult, Model, Provider, ProviderInfo, ProviderStatus } from "./core/types.ts";
 export { BaseProvider } from "./core/base.ts";
 export { ProviderRegistry, providerRegistry } from "./core/registry.ts";
 export { OllamaProvider, type OllamaOptions } from "./implementations/ollama.ts";

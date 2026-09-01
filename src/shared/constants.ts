@@ -18,6 +18,7 @@ export const MODELS_ROUTE = "/api/models";
 export const PROVIDERS_ROUTE = "/api/providers";
 export const CREDENTIALS_ROUTE = "/api/credentials";
 export const CREDENTIAL_ROUTE = "/api/credentials/:providerId";
+export const CHAT_ROUTE = "/api/chat";
 
 /** The element htmx swaps server fragments into. */
 export const SWAP_TARGET = "#greeting";

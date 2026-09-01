@@ -14,7 +14,7 @@
  * A custom `fetch` can be injected for tests or non-standard runtimes.
  */
 import { BaseProvider } from "../core/base.ts";
-import type { Model } from "../core/types.ts";
+import type { ChatOptions, ChatResult, Model } from "../core/types.ts";
 
 export type OllamaOptions = {
   /** Base URL without trailing slash, e.g. `http://127.0.0.1:11434`. */
@@ -103,6 +103,106 @@ export class OllamaProvider extends BaseProvider {
       return [];
     } finally {
       clearTimeout(timer);
+    }
+  }
+
+  async chat(options: ChatOptions): Promise<ChatResult> {
+    const res = await this.fetchImpl(`${this.baseUrl}/api/chat`, {
+      method: "POST",
+      signal: options.signal,
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({
+        model: options.model,
+        messages: options.messages,
+        stream: false,
+        // Qwen3.5 / thinking models default to `think:true` and stream a long
+        // `thinking` trace before any `content`. That makes the SSE appear to
+        // show reasoning but never the answer (and idles until timeout). Disable
+        // thinking for chat so the model answers directly.
+        think: false,
+      }),
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(`Ollama chat failed: ${res.status} ${text.slice(0, 200)}`);
+    }
+    const data = (await res.json()) as {
+      message?: { role?: string; content?: string };
+      done_reason?: string;
+      done?: boolean;
+    };
+    const content = data.message?.content ?? "";
+    if (!content && !data.done) throw new Error("Ollama returned empty reply");
+    return {
+      content,
+      model: options.model,
+      providerId: this.id,
+      finishReason: data.done_reason ?? (data.done ? "stop" : undefined),
+    };
+  }
+
+  async *chatStream(options: ChatOptions): AsyncIterable<string> {
+    const res = await this.fetchImpl(`${this.baseUrl}/api/chat`, {
+      method: "POST",
+      signal: options.signal,
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({
+        model: options.model,
+        messages: options.messages,
+        stream: true,
+        think: false,
+      }),
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(`Ollama stream failed: ${res.status} ${text.slice(0, 200)}`);
+    }
+    if (!res.body) {
+      // Fallback to non-stream
+      const fallback = await this.chat(options);
+      if (fallback.content) yield fallback.content;
+      return;
+    }
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = "";
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const lines = buf.split("\n");
+        buf = lines.pop() ?? "";
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed) continue;
+          try {
+            const obj = JSON.parse(trimmed) as {
+              message?: { content?: string; thinking?: string };
+              done?: boolean;
+              error?: string;
+            };
+            if (obj.error) throw new Error(obj.error);
+            // `thinking` is ignored (think: false disables it); only `content`
+            // is the final answer the UI should show.
+            if (obj.message?.content) yield obj.message.content;
+            if (obj.done) return;
+          } catch (e) {
+            // If not JSON, treat as raw chunk
+            if (trimmed) yield trimmed;
+          }
+        }
+      }
+      if (buf.trim()) {
+        try {
+          const obj = JSON.parse(buf) as { message?: { content?: string } };
+          if (obj.message?.content) yield obj.message.content;
+        } catch {
+          yield buf;
+        }
+      }
+    } finally {
+      reader.releaseLock();
     }
   }
 

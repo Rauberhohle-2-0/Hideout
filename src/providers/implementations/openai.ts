@@ -14,7 +14,7 @@
  * nothing — useful for CI, but the keychain is the source of truth.
  */
 import { BaseProvider } from "../core/base.ts";
-import type { Model } from "../core/types.ts";
+import type { ChatOptions, ChatResult, Model } from "../core/types.ts";
 import type { CredentialStore } from "../core/credentials.ts";
 import { createDefaultCredentialStore } from "../core/credentials.ts";
 
@@ -121,6 +121,100 @@ export class OpenAIProvider extends BaseProvider {
       return [];
     } finally {
       clearTimeout(timer);
+    }
+  }
+
+  async chat(options: ChatOptions): Promise<ChatResult> {
+    const key = await this.getApiKey();
+    if (!key) throw new Error("OpenAI API key not configured");
+    const res = await this.fetchImpl(`${this.baseUrl}/chat/completions`, {
+      method: "POST",
+      signal: options.signal,
+      headers: {
+        Authorization: `Bearer ${key}`,
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify({
+        model: options.model,
+        messages: options.messages,
+        stream: false,
+      }),
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(`OpenAI chat failed: ${res.status} ${text.slice(0, 300)}`);
+    }
+    const data = (await res.json()) as {
+      choices?: Array<{ message?: { content?: string }; finish_reason?: string }>;
+      error?: { message?: string };
+    };
+    if (data.error) throw new Error(data.error.message ?? "OpenAI error");
+    const choice = data.choices?.[0];
+    const content = choice?.message?.content ?? "";
+    return {
+      content,
+      model: options.model,
+      providerId: this.id,
+      finishReason: choice?.finish_reason,
+    };
+  }
+
+  async *chatStream(options: ChatOptions): AsyncIterable<string> {
+    const key = await this.getApiKey();
+    if (!key) throw new Error("OpenAI API key not configured");
+    const res = await this.fetchImpl(`${this.baseUrl}/chat/completions`, {
+      method: "POST",
+      signal: options.signal,
+      headers: {
+        Authorization: `Bearer ${key}`,
+        "Content-Type": "application/json",
+        Accept: "text/event-stream",
+      },
+      body: JSON.stringify({
+        model: options.model,
+        messages: options.messages,
+        stream: true,
+      }),
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(`OpenAI stream failed: ${res.status} ${text.slice(0, 300)}`);
+    }
+    if (!res.body) {
+      const fallback = await this.chat(options);
+      if (fallback.content) yield fallback.content;
+      return;
+    }
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = "";
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const lines = buf.split("\n");
+        buf = lines.pop() ?? "";
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed || trimmed === "data: [DONE]") continue;
+          if (!trimmed.startsWith("data: ")) continue;
+          const jsonStr = trimmed.slice(6);
+          try {
+            const obj = JSON.parse(jsonStr) as {
+              choices?: Array<{ delta?: { content?: string }; finish_reason?: string | null }>;
+            };
+            const delta = obj.choices?.[0]?.delta?.content;
+            if (delta) yield delta;
+            if (obj.choices?.[0]?.finish_reason) return;
+          } catch {
+            // ignore parse errors for keepalive comments
+          }
+        }
+      }
+    } finally {
+      reader.releaseLock();
     }
   }
 

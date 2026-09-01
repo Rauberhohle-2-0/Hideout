@@ -13,7 +13,7 @@
  * `x-api-key` and `anthropic-version`. Env fallback: `ANTHROPIC_API_KEY`.
  */
 import { BaseProvider } from "../core/base.ts";
-import type { Model } from "../core/types.ts";
+import type { ChatOptions, ChatResult, Model } from "../core/types.ts";
 import type { CredentialStore } from "../core/credentials.ts";
 import { createDefaultCredentialStore } from "../core/credentials.ts";
 
@@ -129,6 +129,136 @@ export class AnthropicProvider extends BaseProvider {
       return [];
     } finally {
       clearTimeout(timer);
+    }
+  }
+
+  async chat(options: ChatOptions): Promise<ChatResult> {
+    const key = await this.getApiKey();
+    if (!key) throw new Error("Anthropic API key not configured");
+    // Anthropic requires a top-level `system` string and user/assistant turns in `messages`.
+    const systemParts = options.messages.filter((m) => m.role === "system").map((m) => m.content);
+    const system = systemParts.length > 0 ? systemParts.join("\n\n") : undefined;
+    const messages = options.messages
+      .filter((m) => m.role !== "system")
+      .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
+
+    const body: Record<string, unknown> = {
+      model: options.model,
+      max_tokens: 4096,
+      messages,
+    };
+    if (system) body.system = system;
+
+    const res = await this.fetchImpl(`${this.baseUrl}/v1/messages`, {
+      method: "POST",
+      signal: options.signal,
+      headers: {
+        "x-api-key": key,
+        "anthropic-version": this.anthropicVersion,
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(`Anthropic chat failed: ${res.status} ${text.slice(0, 300)}`);
+    }
+    const data = (await res.json()) as {
+      content?: Array<{ type?: string; text?: string }>;
+      stop_reason?: string;
+      error?: { message?: string };
+    };
+    if (data.error) throw new Error(data.error.message ?? "Anthropic error");
+    const content = (data.content ?? [])
+      .filter((c) => c.type === "text")
+      .map((c) => c.text ?? "")
+      .join("");
+    return {
+      content,
+      model: options.model,
+      providerId: this.id,
+      finishReason: data.stop_reason,
+    };
+  }
+
+  async *chatStream(options: ChatOptions): AsyncIterable<string> {
+    const key = await this.getApiKey();
+    if (!key) throw new Error("Anthropic API key not configured");
+    const systemParts = options.messages.filter((m) => m.role === "system").map((m) => m.content);
+    const system = systemParts.length > 0 ? systemParts.join("\n\n") : undefined;
+    const messages = options.messages
+      .filter((m) => m.role !== "system")
+      .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
+    const body: Record<string, unknown> = {
+      model: options.model,
+      max_tokens: 4096,
+      messages,
+      stream: true,
+    };
+    if (system) body.system = system;
+
+    const res = await this.fetchImpl(`${this.baseUrl}/v1/messages`, {
+      method: "POST",
+      signal: options.signal,
+      headers: {
+        "x-api-key": key,
+        "anthropic-version": this.anthropicVersion,
+        "Content-Type": "application/json",
+        Accept: "text/event-stream",
+      },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(`Anthropic stream failed: ${res.status} ${text.slice(0, 300)}`);
+    }
+    if (!res.body) {
+      const fallback = await this.chat(options);
+      if (fallback.content) yield fallback.content;
+      return;
+    }
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = "";
+    let currentEvent = "";
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const lines = buf.split("\n");
+        buf = lines.pop() ?? "";
+        for (const line of lines) {
+          if (line.startsWith("event: ")) {
+            currentEvent = line.slice(7).trim();
+            continue;
+          }
+          if (!line.startsWith("data: ")) {
+            if (line.trim() === "") currentEvent = "";
+            continue;
+          }
+          const jsonStr = line.slice(6);
+          try {
+            const obj = JSON.parse(jsonStr) as {
+              type?: string;
+              delta?: { type?: string; text?: string };
+              content_block?: { text?: string };
+            };
+            if (currentEvent === "content_block_delta" || obj.type === "content_block_delta") {
+              const text = obj.delta?.text;
+              if (text) yield text;
+            } else if (obj.type === "content_block_start" && obj.content_block?.text) {
+              yield obj.content_block.text;
+            }
+            if (obj.type === "message_stop") return;
+          } catch {
+            // ignore keepalive or malformed
+          }
+        }
+      }
+    } finally {
+      reader.releaseLock();
     }
   }
 

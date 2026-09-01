@@ -25,6 +25,28 @@ export type Model = {
 /** High-level reachability of a provider. */
 export type ProviderStatus = "connected" | "disconnected" | "error";
 
+/** A single turn in a conversation. */
+export type ChatMessage = {
+  role: "user" | "assistant" | "system";
+  content: string;
+};
+
+/** Options for a chat completion. */
+export type ChatOptions = {
+  model: string;
+  messages: ChatMessage[];
+  /** Abort a long-running request. */
+  signal?: AbortSignal;
+};
+
+/** Result of a chat completion. */
+export type ChatResult = {
+  content: string;
+  model: string;
+  providerId: string;
+  finishReason?: string;
+};
+
 /** Minimal contract a plugin must satisfy. */
 export interface Provider {
   /** Machine id, unique in the registry — e.g. `ollama`, `openai`. */
@@ -35,6 +57,10 @@ export interface Provider {
   isAvailable(): Promise<boolean>;
   /** Models usable right now. Returns `[]` when not connected. */
   listModels(): Promise<Model[]>;
+  /** Chat completion — must return the assistant text. */
+  chat(options: ChatOptions): Promise<ChatResult>;
+  /** Streaming chat — yields text deltas. Default falls back to `chat`. */
+  chatStream?(options: ChatOptions): AsyncIterable<string>;
 }
 
 /** Optional richer status, useful for health endpoints. */

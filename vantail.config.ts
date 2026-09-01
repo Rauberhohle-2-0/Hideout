@@ -1,25 +1,25 @@
-import { defineConfig } from "@vantail/cli";
+import { defineConfig } from '@vantail/cli'
 
 export default defineConfig({
   app: {
-    name: "Hideout",
-    identifier: "dev.hideout.desktop",
-    version: "0.1.0",
+    name: 'Hideout',
+    identifier: 'dev.hideout.desktop',
+    version: '0.1.0',
   },
   window: {
-    title: "Hideout",
+    title: 'Hideout',
     width: 1280,
     height: 800,
     minWidth: 1000,
     minHeight: 680,
     // What shows before the page has painted, so a fast resize does not open
     // a pale gap down the side.
-    backgroundColor: "#ffffff",
+    backgroundColor: '#ffffff',
     // Let the page draw its own title bar: the window content reaches the top
     // edge (titleBarStyle: "hidden") with room reserved for a bar about the
     // height of the system's own. The platform's buttons stay (macOS traffic
     // lights); the renderer drags the bar and centres them in it.
-    titleBarStyle: "hidden",
+    titleBarStyle: 'hidden',
     titleBarHeight: 36,
   },
   permissions: {
@@ -35,12 +35,20 @@ export default defineConfig({
     // avoided — each provider host is listed explicitly per docs/permissions.md.
     network: {
       allow: [
-        "api.openai.com",
-        "api.anthropic.com",
+        'api.openai.com',
+        'api.anthropic.com',
         // Ollama is local; listed for completeness when the webview probes it.
-        "127.0.0.1",
-        "localhost",
+        '127.0.0.1',
+        'localhost',
+      ],
+    },
+    shell: {
+      allow: [
+        // The sidecar itself. `$RESOURCE` is `dist/` in dev and
+        // `Contents/Resources/dist/` in a packaged bundle, so this one rule
+        // covers both.
+        { program: '$RESOURCE/bin/hideout-server' },
       ],
     },
   },
-});
+})
