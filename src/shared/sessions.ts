@@ -25,6 +25,8 @@ export type ChatSession = {
   createdAt: number;
   /** ms since epoch, bumped on each message/edit/pin. */
   updatedAt: number;
+  /** Whether MCP/tools are enabled for this chat. Defaults to `true` (new chats always enabled). */
+  toolsEnabled?: boolean;
 };
 
 /** Lightweight projection for list rendering / search without full messages. */
@@ -76,6 +78,7 @@ export function validateSession(raw: unknown): string | null {
   if (!Array.isArray(s.messages)) return "messages must be an array";
   if (typeof s.pinned !== "boolean") return "pinned must be boolean";
   if (typeof s.createdAt !== "number" || typeof s.updatedAt !== "number") return "timestamps required";
+  if (s.toolsEnabled !== undefined && typeof s.toolsEnabled !== "boolean") return "toolsEnabled must be boolean";
   for (const m of s.messages) {
     if (!m || typeof m !== "object") return "Invalid message";
     const msg = m as Record<string, unknown>;
@@ -94,4 +97,10 @@ export function groupSessions(sessions: ChatSession[]): { pinned: ChatSession[];
   const pinned = sessions.filter((s) => s.pinned).sort(sortSessions);
   const recent = sessions.filter((s) => !s.pinned).sort(sortSessions);
   return { pinned, recent };
+}
+
+/** Whether tools/MCP are enabled for a session. Defaults to true for backward compat and new chats. */
+export function isToolsEnabled(session: Pick<ChatSession, "toolsEnabled"> | null | undefined): boolean {
+  if (!session) return true;
+  return session.toolsEnabled !== false;
 }

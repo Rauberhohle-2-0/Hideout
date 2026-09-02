@@ -573,3 +573,26 @@ body.sidebar-collapsed #model-selector {
 .session-action.active-pin {
   color: var(--color-ink);
 }
+
+/* Tools / wrench toggle — per-chat MCP enable. Enabled shows accent
+   background (added via JS), disabled is dimmed and crossed. */
+#tools-toggle.tools-enabled {
+  /* accent bg added inline via JS (bg-accent/15); keep transition */
+}
+
+#tools-toggle.tools-disabled {
+  opacity: 0.6;
+  position: relative;
+}
+
+#tools-toggle.tools-disabled::after {
+  content: "";
+  position: absolute;
+  width: 1.5px;
+  height: 60%;
+  background: currentColor;
+  transform: rotate(32deg);
+  opacity: 0.7;
+  border-radius: 9999px;
+  pointer-events: none;
+}

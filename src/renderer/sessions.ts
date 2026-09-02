@@ -278,7 +278,7 @@ class SessionStore {
     this.emitChange(); // active row highlights
   }
 
-  create(title?: string, messages: ChatMessage[] = [], opts: { pinned?: boolean } = {}): ChatSession {
+  create(title?: string, messages: ChatMessage[] = [], opts: { pinned?: boolean; toolsEnabled?: boolean } = {}): ChatSession {
     const now = Date.now();
     const derived = title?.trim() || deriveTitle(messages);
     const session: ChatSession = {
@@ -288,6 +288,7 @@ class SessionStore {
       pinned: opts.pinned ?? false,
       createdAt: now,
       updatedAt: now,
+      toolsEnabled: opts.toolsEnabled ?? true,
     };
     this.sessions.set(session.id, session);
     this.activeId = session.id;
@@ -304,7 +305,7 @@ class SessionStore {
     return this.create(titleHint);
   }
 
-  update(id: string, patch: Partial<Pick<ChatSession, "title" | "pinned" | "messages">>): ChatSession | null {
+  update(id: string, patch: Partial<Pick<ChatSession, "title" | "pinned" | "messages" | "toolsEnabled">>): ChatSession | null {
     const s = this.sessions.get(id);
     if (!s) return null;
     let changed = false;
@@ -314,6 +315,10 @@ class SessionStore {
     }
     if (patch.pinned !== undefined && patch.pinned !== s.pinned) {
       s.pinned = patch.pinned;
+      changed = true;
+    }
+    if (patch.toolsEnabled !== undefined && patch.toolsEnabled !== (s.toolsEnabled ?? true)) {
+      s.toolsEnabled = patch.toolsEnabled;
       changed = true;
     }
     if (patch.messages !== undefined) {
@@ -355,6 +360,33 @@ class SessionStore {
     const s = this.sessions.get(id);
     if (!s) return null;
     return this.update(id, { pinned: !s.pinned });
+  }
+
+  /** Whether tools/MCP are enabled for a session. Defaults to true for backward compat. */
+  isToolsEnabled(id: string): boolean {
+    const s = this.sessions.get(id);
+    if (!s) return true;
+    return s.toolsEnabled !== false;
+  }
+
+  /** Set tools enabled for a session. */
+  setToolsEnabled(id: string, enabled: boolean): ChatSession | null {
+    return this.update(id, { toolsEnabled: enabled });
+  }
+
+  /** Toggle tools for a session (enabled -> disabled and vice versa). */
+  toggleTools(id: string): ChatSession | null {
+    const s = this.sessions.get(id);
+    if (!s) return null;
+    const next = !(s.toolsEnabled !== false);
+    return this.update(id, { toolsEnabled: next });
+  }
+
+  /** Convenience for active session. */
+  isActiveToolsEnabled(): boolean {
+    const id = this.activeId;
+    if (!id) return true;
+    return this.isToolsEnabled(id);
   }
 
   rename(id: string, title: string): ChatSession | null {

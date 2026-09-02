@@ -37,6 +37,8 @@ export type ChatOptions = {
   messages: ChatMessage[];
   /** Abort a long-running request. */
   signal?: AbortSignal;
+  /** Whether MCP/tools are enabled for this request. Defaults to true. */
+  toolsEnabled?: boolean;
 };
 
 /** Result of a chat completion. */

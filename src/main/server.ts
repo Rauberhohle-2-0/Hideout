@@ -29,6 +29,10 @@ import {
   createDefaultCredentialStore,
   maskApiKey,
 } from "../providers/core/credentials.ts";
+import { McpManager } from "../mcp/manager.ts";
+import { createMcpRoutes } from "../mcp/routes.ts";
+import type { McpStore } from "../mcp/store.ts";
+import { MemoryMcpStore, createDefaultMcpStore } from "../mcp/store.ts";
 
 export type CreateAppOptions = {
   /** Override the registry (useful for tests). */
@@ -43,6 +47,14 @@ export type CreateAppOptions = {
   credentialStore?: CredentialStore;
   /** Custom fetch for OpenAI/Anthropic providers (tests). */
   cloudFetch?: typeof fetch;
+  /** MCP store override (tests). */
+  mcpStore?: McpStore;
+  /** MCP manager override (tests). */
+  mcpManager?: McpManager;
+  /** Custom fetch for MCP HTTP/SSE probes (tests). */
+  mcpFetch?: typeof fetch;
+  /** Whether to auto-seed the free EXA server when store is empty (default true). */
+  autoSeedExa?: boolean;
 };
 
 export function createApp(options: CreateAppOptions = {}) {
@@ -112,6 +124,32 @@ export function createApp(options: CreateAppOptions = {}) {
   for (const p of options.providers ?? []) {
     if (!registry.get(p.id)) registry.register(p);
   }
+
+  // ── MCP servers — STDIO / HTTP (Streamable) / SSE ─────────────────────
+  // Each transport is strictly separated:
+  // - stdio:  command + args + env (+ cwd)   — spawns a local subprocess (npx/uvx)
+  // - http:   url + headers + timeoutSeconds — Streamable HTTP (modern, `https://mcp.exa.ai/mcp`)
+  // - sse:    url + headers + timeoutSeconds — legacy SSE (deprecated but still supported)
+  // The default when the store is empty is the free EXA server over HTTP.
+  const mcpManager =
+    options.mcpManager ??
+    new McpManager({
+      store:
+        options.mcpStore ??
+        (() => {
+          try {
+            return createDefaultMcpStore();
+          } catch {
+            return new MemoryMcpStore();
+          }
+        })(),
+      fetchImpl: options.mcpFetch ?? (globalThis.fetch as typeof fetch),
+      autoSeedExa: options.autoSeedExa ?? true,
+    });
+  // Eagerly seed EXA so GET /api/mcp/servers is never empty in production.
+  // Lazy init also works, but this makes the first request deterministic.
+  void mcpManager.init().catch(() => {});
+  app.route("/", createMcpRoutes(mcpManager));
 
   // Greet by name. The window's page sends the OS user's name, filled in by
   // src/renderer/main.ts, through an htmx request that Vite proxies here.
@@ -251,11 +289,12 @@ export function createApp(options: CreateAppOptions = {}) {
     }
     const err = validateChatRequest(body);
     if (err) return c.json({ error: err }, 400);
-    const { providerId, model, messages, stream } = body as {
+    const { providerId, model, messages, stream, toolsEnabled } = body as {
       providerId: string;
       model: string;
       messages: Array<{ role: "user" | "assistant" | "system"; content: string }>;
       stream?: boolean;
+      toolsEnabled?: boolean;
     };
 
     const provider = registry.get(providerId);
@@ -277,13 +316,20 @@ export function createApp(options: CreateAppOptions = {}) {
       // answer text or `data: {"thinking":"..."}` for the model's reasoning
       // trace, closed with `data: [DONE]`.
       const encoder = new TextEncoder();
+      const chatToolsEnabled = toolsEnabled !== false;
+      // When tools are enabled, we could attach MCP tools here. For now we
+      // forward the flag so providers can gate tool exposure; the flag is
+      // per-chat and defaults to true (see shared/chat.ts and sessions.ts).
+      // Future: if (chatToolsEnabled) { tools = await mcpManager.listInfos() ... }
+      void mcpManager;
+      void chatToolsEnabled;
       const readable = new ReadableStream<Uint8Array>({
         async start(controller) {
           try {
             const iterator = provider.chatStream
-              ? provider.chatStream({ model, messages, signal: c.req.raw.signal })
+              ? provider.chatStream({ model, messages, signal: c.req.raw.signal, toolsEnabled: chatToolsEnabled })
               : (async function* () {
-                  const res = await provider.chat({ model, messages, signal: c.req.raw.signal });
+                  const res = await provider.chat({ model, messages, signal: c.req.raw.signal, toolsEnabled: chatToolsEnabled });
                   if (res.content) yield { type: "content" as const, text: res.content };
                 })();
             for await (const chunk of iterator) {
@@ -323,7 +369,8 @@ export function createApp(options: CreateAppOptions = {}) {
     }
 
     try {
-      const result = await provider.chat({ model, messages, signal: c.req.raw.signal });
+      const chatToolsEnabled = toolsEnabled !== false;
+      const result = await provider.chat({ model, messages, signal: c.req.raw.signal, toolsEnabled: chatToolsEnabled });
       return c.json({
         content: result.content,
         model: result.model,

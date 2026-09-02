@@ -37,6 +37,10 @@ export default defineConfig({
       allow: [
         'api.openai.com',
         'api.anthropic.com',
+        // MCP: Exa search over Streamable HTTP (free tier, no key at https://mcp.exa.ai/mcp)
+        'mcp.exa.ai',
+        // Generic MCP hosts — keep narrow; add per-server as needed.
+        // HTTP/SSE MCP servers may live on user-configured hosts.
         // Ollama is local; listed for completeness when the webview probes it.
         '127.0.0.1',
         'localhost',

@@ -23,6 +23,8 @@ export type ChatRequest = {
   messages: ChatMessage[];
   /** When true, server streams NDJSON/SSE chunks instead of a single JSON. */
   stream?: boolean;
+  /** Whether MCP/tools are enabled for this chat. Defaults to true. When false, server must not expose tools. */
+  toolsEnabled?: boolean;
 };
 
 export type ChatResponse = {
@@ -53,5 +55,6 @@ export function validateChatRequest(body: unknown): string | null {
     if (msg.role === "user" && !(msg.content as string).trim()) return "User message cannot be empty";
   }
   if (b.stream !== undefined && typeof b.stream !== "boolean") return "stream must be boolean";
+  if (b.toolsEnabled !== undefined && typeof b.toolsEnabled !== "boolean") return "toolsEnabled must be boolean";
   return null;
 }

@@ -133,6 +133,8 @@ function wireNewChatButton(): void {
     const active = sessionStore.getActive()
     // Reuse an existing empty draft to avoid duplicate "New chat" rows
     if (active && active.messages.length === 0) {
+      // New chat is always tools-enabled per spec — re-enable if user had disabled this draft
+      if (!sessionStore.isToolsEnabled(active.id)) sessionStore.setToolsEnabled(active.id, true)
       window.dispatchEvent(new CustomEvent('hideout:session-selected', { detail: active.id }))
       if (field) {
         field.value = ''
@@ -145,7 +147,8 @@ function wireNewChatButton(): void {
     // Actually create a new chat — appears instantly in the sidebar
     // (Aktuelle) and becomes the active thread. Chat history/column
     // will be cleared via the hideout:session-selected listener in wireChat.
-    const session = sessionStore.create(undefined, [], { pinned: false })
+    // New chats always start with MCP/tools enabled.
+    const session = sessionStore.create(undefined, [], { pinned: false, toolsEnabled: true })
     window.dispatchEvent(new CustomEvent('hideout:session-selected', { detail: session.id }))
     if (field) {
       field.value = ''
@@ -788,6 +791,59 @@ function wireComposer(): void {
 }
 
 /**
+ * Wrench / tools toggle — per-chat MCP enable/disable.
+ *
+ * The button with `#tools-toggle` (wrench icon) controls whether MCP/tools
+ * are exposed for the current chat. State lives per-session in `sessionStore`
+ * (`toolsEnabled`, defaults to true). New chats are always created enabled;
+ * the user can disable it for the current chat if tools are not needed.
+ *
+ * Visual: `aria-pressed` + `tools-enabled` / `tools-disabled` + accent bg
+ * when enabled, dimmed when disabled. Updates on session change and on click.
+ */
+function wireToolsToggle(): void {
+  const btn = document.querySelector<HTMLButtonElement>('#tools-toggle')
+  if (!btn) return
+
+  const updateUI = (): void => {
+    const id = sessionStore.getActiveId()
+    const enabled = id ? sessionStore.isToolsEnabled(id) : true
+    btn.setAttribute('aria-pressed', String(enabled))
+    btn.setAttribute('aria-label', enabled ? 'Tools enabled — click to disable' : 'Tools disabled — click to enable')
+    btn.title = enabled ? 'MCP tools enabled — click to disable for this chat' : 'MCP tools disabled — click to enable for this chat'
+    btn.classList.toggle('tools-enabled', enabled)
+    btn.classList.toggle('tools-disabled', !enabled)
+    // Accent highlight when enabled, muted when disabled — mirrors selected row feel
+    if (enabled) {
+      btn.classList.add('bg-accent/15', 'text-ink')
+      btn.classList.remove('opacity-60')
+    } else {
+      btn.classList.remove('bg-accent/15', 'text-ink')
+      btn.classList.add('opacity-60')
+    }
+  }
+
+  btn.addEventListener('click', () => {
+    const active = sessionStore.getActive()
+    if (!active) {
+      // No session yet — create an enabled one then toggle off, so a click
+      // from empty state actually disables this new chat as the user intended.
+      const s = sessionStore.create(undefined, [], { pinned: false, toolsEnabled: true })
+      sessionStore.setToolsEnabled(s.id, false)
+      window.dispatchEvent(new CustomEvent('hideout:session-selected', { detail: s.id }))
+      return
+    }
+    sessionStore.toggleTools(active.id)
+  })
+
+  // Keep UI in sync with store + session switches
+  sessionStore.onChange(updateUI)
+  sessionStore.onActiveChanged(updateUI)
+  window.addEventListener('hideout:session-selected', updateUI)
+  updateUI()
+}
+
+/**
  * Chat thread wiring — renderer-side answering behavior.
  *
  * All chat/answering happens in the renderer (per spec): the renderer keeps
@@ -861,7 +917,7 @@ function wireChat(): void {
     // The message column (#chat-column) holds gap/padding already, so each
     // row is just its bubble, aligned within the centred column.
     const wrap = document.createElement('div')
-    wrap.className = role === 'user' ? 'flex w-full justify-end' : 'flex w-full justify-center'
+    wrap.className = `flex w-full ${role === 'user' ? 'justify-end' : role === 'error' ? 'justify-start' : 'justify-center'}`
     const bubble = document.createElement('div')
     bubble.className = bubbleClass(role)
     // Keep line breaks and escape HTML — assistant turns may return markup-like text
@@ -1153,11 +1209,13 @@ function wireChat(): void {
     }
 
     try {
+      const toolsEnabled = sessionStore.isToolsEnabled(sessionId)
       for await (const chunk of chatStream({
         providerId: sel.providerId,
         model: sel.id,
         messages: requestMessages,
         signal: controller.signal,
+        toolsEnabled,
       })) {
         const live = liveChats.get(sessionId)
         if (!anyDelta) {
@@ -1345,4 +1403,5 @@ function wireChat(): void {
 initTheme()
 wireThemeToggle()
 wireComposer()
+wireToolsToggle()
 wireChat()

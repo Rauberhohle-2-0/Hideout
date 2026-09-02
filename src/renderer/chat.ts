@@ -102,6 +102,8 @@ export type ChatOptions = {
   model: string;
   messages: ChatMessage[];
   signal?: AbortSignal;
+  /** Whether MCP/tools are enabled for this chat. Defaults to true. When false, server must not use tools. */
+  toolsEnabled?: boolean;
 };
 
 async function handleErrorResponse(res: Response): Promise<never> {
@@ -125,6 +127,7 @@ export async function chat(options: ChatOptions): Promise<ChatResponse> {
     model: options.model,
     messages: options.messages,
     stream: false,
+    ...(options.toolsEnabled !== undefined ? { toolsEnabled: options.toolsEnabled } : {}),
   };
   const res = await fetch(CHAT_ROUTE, {
     method: "POST",
@@ -161,6 +164,7 @@ export async function* chatStream(options: ChatOptions): AsyncIterable<ChatStrea
     model: options.model,
     messages: options.messages,
     stream: true,
+    ...(options.toolsEnabled !== undefined ? { toolsEnabled: options.toolsEnabled } : {}),
   };
   const res = await fetch(CHAT_ROUTE, {
     method: "POST",
