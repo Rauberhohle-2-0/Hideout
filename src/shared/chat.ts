@@ -7,11 +7,22 @@
 
 export type ChatRole = "user" | "assistant" | "system";
 
+export type Source = {
+  /** Source URL — used as link href and favicon origin. */
+  url: string;
+  /** Human title for the source (page title, domain fallback). */
+  title?: string;
+  /** Optional favicon URL. When absent, UI derives from `url` origin. */
+  favicon?: string;
+};
+
 export type ChatMessage = {
   role: ChatRole;
   content: string;
   /** Model reasoning captured separately from the visible assistant answer. */
   thinking?: string;
+  /** Citations returned when a web search MCP tool was used successfully. */
+  sources?: Source[];
 };
 
 export type ChatRequest = {
@@ -34,6 +45,8 @@ export type ChatResponse = {
   providerId: string;
   /** Optional finish reason (`stop`, `length`, etc.). */
   finishReason?: string;
+  /** Sources cited when a web-search MCP tool contributed to this answer. */
+  sources?: Source[];
 };
 
 /** Parse error shape returned by the sidecar. */

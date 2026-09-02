@@ -5,14 +5,14 @@
  * in index.html, then wire up the custom title bar, sidebar and theme.
  */
 import { appWindow, titleBarMetrics } from '@vantail/api'
-import { ChevronDown, createIcons, MessageCircle, Mic, Moon, PanelLeft, Pencil, Pin, PinOff, Plus, Search, SendHorizontal, Settings, SquarePen, Sun, Trash2, Wrench, X } from 'lucide'
-import { ChatHistory, chatStream, getSelectedModel, setSelectedModel, type SelectedModel } from './chat.ts'
+import { ChevronDown, createIcons, MessageCircle, Mic, Moon, PanelLeft, Pencil, Pin, PinOff, Plus, Search, SendHorizontal, Settings, Square, SquarePen, Sun, Trash2, Wrench, X } from 'lucide'
+import { ChatHistory, chatStream, getSelectedModel, setSelectedModel, type SelectedModel, type Source } from './chat.ts'
 import { sessionStore, type ChatSession } from './sessions.ts'
 
 // Hydrate the Lucide icons declared as `<i data-lucide="…">` in index.html.
 // The runtime swaps each placeholder for its SVG, keeping the element's own
 // class and data-* attributes (e.g. `data-theme-icon`, `hidden`).
-createIcons({ icons: { ChevronDown, MessageCircle, Mic, Moon, PanelLeft, Pencil, Pin, PinOff, Plus, Search, SendHorizontal, Settings, SquarePen, Sun, Trash2, Wrench, X } })
+createIcons({ icons: { ChevronDown, MessageCircle, Mic, Moon, PanelLeft, Pencil, Pin, PinOff, Plus, Search, SendHorizontal, Settings, Square, SquarePen, Sun, Trash2, Wrench, X } })
 
 // How far the macOS traffic lights settle below the bar's vertical centre, so
 // the sidebar's toggle can sit on the very same row. One source of truth for
@@ -856,7 +856,8 @@ function wireChat(): void {
   const thread = document.querySelector<HTMLElement>('#chat-thread')
   const column = document.querySelector<HTMLElement>('#chat-column')
   const field = document.querySelector<HTMLTextAreaElement>('#composer-field')
-  const sendBtn = document.querySelector<HTMLButtonElement>('[aria-label="Send message"]')
+  const sendBtn = document.querySelector<HTMLButtonElement>('#send-button') ?? document.querySelector<HTMLButtonElement>('[aria-label="Send message"]')
+  const stopBtn = document.querySelector<HTMLButtonElement>('#stop-button')
   if (!thread || !column || !field || !sendBtn) return
 
   const history = new ChatHistory()
@@ -870,6 +871,8 @@ function wireChat(): void {
     answerEl: HTMLElement
     pending: HTMLElement
     details: HTMLDetailsElement | null
+    sourcesWrap: HTMLElement | null
+    sources: Source[]
     full: string
     thinking: string
     contentStarted: boolean
@@ -888,13 +891,20 @@ function wireChat(): void {
     const activeSending = activeId ? sendingSessions.has(activeId) : false
     field.disabled = activeSending
     sendBtn.setAttribute('aria-busy', String(activeSending))
-    sendBtn.style.opacity = activeSending ? '0.5' : ''
     field.style.opacity = activeSending ? '0.7' : ''
+    // Switch Send ↔ Stop: Stop only visible while the active session is generating
+    if (stopBtn) {
+      stopBtn.hidden = !activeSending
+      sendBtn.hidden = activeSending
+      stopBtn.setAttribute('aria-busy', String(activeSending))
+    }
     if (!activeSending) {
+      sendBtn.style.opacity = ''
       // Re-enable based on text when not sending the active session
       syncSendEnabled()
     } else {
       sendBtn.disabled = true
+      sendBtn.style.opacity = '0.5'
     }
   }
 
@@ -950,9 +960,185 @@ function wireChat(): void {
       .map((step) => step.trim())
       .filter(Boolean)
 
-  const renderPersistedReasoning = (content: string, thinking: string): HTMLElement => {
+  // ── Sources helpers ───────────────────────────────────────────────
+
+  const sourceFaviconUrl = (src: Source): string | null => {
+    if (src.favicon) return src.favicon
+    try {
+      const u = new URL(src.url)
+      // Google's favicon service is reliable and avoids mixed-content issues
+      return `https://www.google.com/s2/favicons?domain=${u.hostname}&sz=32`
+    } catch {
+      return null
+    }
+  }
+
+  const sourceDomain = (url: string): string => {
+    try {
+      return new URL(url).hostname.replace(/^www\./, '')
+    } catch {
+      return url
+    }
+  }
+
+  const sourceFallbackLetter = (url: string): string => {
+    const d = sourceDomain(url)
+    return (d[0] ?? 'W').toUpperCase()
+  }
+
+  const sourceTitle = (src: Source): string => {
+    if (src.title && src.title.trim()) return src.title.trim()
+    return sourceDomain(src.url)
+  }
+
+  /** Build the clickable pill + collapsible list for a set of sources. */
+  const createSourcesBlock = (sources: Source[]): HTMLElement => {
+    const wrap = document.createElement('div')
+    wrap.className = 'flex w-full flex-col gap-2'
+    wrap.dataset.sourcesBlock = 'true'
+
+    const pill = document.createElement('button')
+    pill.type = 'button'
+    pill.className = 'sources-pill'
+    pill.setAttribute('aria-expanded', 'false')
+    pill.setAttribute('aria-label', `${sources.length} source${sources.length === 1 ? '' : 's'} — click to ${sources.length === 1 ? 'view' : 'expand'}`)
+
+    const icons = document.createElement('span')
+    icons.className = 'sources-icons'
+    icons.setAttribute('aria-hidden', 'true')
+    const visibleIcons = sources.slice(0, 4)
+    for (const src of visibleIcons) {
+      const icon = document.createElement('span')
+      icon.className = 'sources-icon'
+      const fav = sourceFaviconUrl(src)
+      if (fav) {
+        const img = document.createElement('img')
+        img.alt = ''
+        img.loading = 'lazy'
+        img.src = fav
+        img.referrerPolicy = 'no-referrer'
+        img.addEventListener('error', () => {
+          // Fallback to letter on load failure
+          img.remove()
+          const fb = document.createElement('span')
+          fb.className = 'sources-icon-fallback'
+          fb.textContent = sourceFallbackLetter(src.url).slice(0, 1)
+          // Keep single letter, not "W W"
+          if (!icon.querySelector('.sources-icon-fallback')) icon.appendChild(fb)
+        })
+        icon.appendChild(img)
+      } else {
+        const fb = document.createElement('span')
+        fb.className = 'sources-icon-fallback'
+        fb.textContent = 'W'
+        icon.appendChild(fb)
+      }
+      icons.appendChild(icon)
+    }
+    pill.appendChild(icons)
+
+    const count = document.createElement('span')
+    count.className = 'sources-count'
+    count.textContent = `${sources.length} source${sources.length === 1 ? '' : 's'}`
+    pill.appendChild(count)
+
+    const chevron = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+    chevron.setAttribute('viewBox', '0 0 24 24')
+    chevron.setAttribute('fill', 'none')
+    chevron.setAttribute('stroke', 'currentColor')
+    chevron.setAttribute('stroke-width', '2')
+    chevron.setAttribute('stroke-linecap', 'round')
+    chevron.setAttribute('stroke-linejoin', 'round')
+    chevron.classList.add('sources-chevron')
+    chevron.setAttribute('aria-hidden', 'true')
+    const cPath = document.createElementNS('http://www.w3.org/2000/svg', 'path')
+    cPath.setAttribute('d', 'm9 18 6-6-6-6')
+    chevron.appendChild(cPath)
+    pill.appendChild(chevron)
+
+    const panel = document.createElement('div')
+    panel.className = 'sources-panel'
+    panel.hidden = true
+
+    const list = document.createElement('div')
+    list.className = 'sources-list'
+    for (const src of sources) {
+      const a = document.createElement('a')
+      a.className = 'sources-item'
+      a.href = src.url
+      a.target = '_blank'
+      a.rel = 'noopener noreferrer'
+      a.title = src.url
+
+      const favWrap = document.createElement('span')
+      favWrap.className = 'sources-item-favicon'
+      const fav = sourceFaviconUrl(src)
+      if (fav) {
+        const img = document.createElement('img')
+        img.alt = ''
+        img.loading = 'lazy'
+        img.src = fav
+        img.referrerPolicy = 'no-referrer'
+        img.addEventListener('error', () => {
+          img.remove()
+          const fb = document.createElement('span')
+          fb.className = 'sources-icon-fallback'
+          fb.textContent = sourceFallbackLetter(src.url).slice(0, 1)
+          fb.style.fontSize = '0.6rem'
+          favWrap.appendChild(fb)
+        })
+        favWrap.appendChild(img)
+      } else {
+        const fb = document.createElement('span')
+        fb.className = 'sources-icon-fallback'
+        fb.textContent = sourceFallbackLetter(src.url).slice(0, 1)
+        favWrap.appendChild(fb)
+      }
+      a.appendChild(favWrap)
+
+      const textCol = document.createElement('span')
+      textCol.className = 'sources-item-text'
+      const titleEl = document.createElement('span')
+      titleEl.className = 'sources-item-title'
+      titleEl.textContent = sourceTitle(src)
+      const urlEl = document.createElement('span')
+      urlEl.className = 'sources-item-url'
+      urlEl.textContent = src.url
+      textCol.append(titleEl, urlEl)
+      a.appendChild(textCol)
+
+      const ext = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+      ext.setAttribute('viewBox', '0 0 24 24')
+      ext.setAttribute('fill', 'none')
+      ext.setAttribute('stroke', 'currentColor')
+      ext.setAttribute('stroke-width', '2')
+      ext.classList.add('sources-item-external')
+      const extPath = document.createElementNS('http://www.w3.org/2000/svg', 'path')
+      extPath.setAttribute('d', 'M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14 21 3')
+      ext.appendChild(extPath)
+      a.appendChild(ext)
+
+      list.appendChild(a)
+    }
+    panel.appendChild(list)
+
+    pill.addEventListener('click', () => {
+      const expanded = pill.getAttribute('aria-expanded') === 'true'
+      const next = !expanded
+      pill.setAttribute('aria-expanded', String(next))
+      panel.hidden = !next
+    })
+
+    wrap.append(pill, panel)
+    return wrap
+  }
+
+  const renderPersistedReasoning = (content: string, thinking: string, sources?: Source[]): HTMLElement => {
     const root = document.createElement('div')
     root.className = 'flex w-full flex-col gap-4'
+    if (sources && sources.length > 0) {
+      root.appendChild(createSourcesBlock(sources))
+    }
     if (thinking) {
       const details = document.createElement('details')
       details.className = 'reasoning-panel'
@@ -1070,12 +1256,16 @@ function wireChat(): void {
       '<span class="inline-flex items-center gap-1.5"><span class="shimmer-text font-medium">Thinking</span>' +
       '<span class="think-dots"><span class="think-dot"></span><span class="think-dot"></span><span class="think-dot"></span></span></span>'
     assistantWrap.appendChild(pending)
+    let sources: Source[] = []
+    let sourcesWrap: HTMLElement | null = null
     // Track live DOM so switching back to this session while it streams re-attaches it.
     liveChats.set(sessionId, {
       root: assistantWrap,
       answerEl,
       pending,
       details,
+      sourcesWrap,
+      sources,
       full: '',
       thinking: '',
       contentStarted: false,
@@ -1146,6 +1336,25 @@ function wireChat(): void {
       return d
     }
 
+    const ensureSourcesBlock = (srcs: Source[]): HTMLElement => {
+      // Replace existing block if sources grew (e.g. second tool call)
+      if (sourcesWrap) sourcesWrap.remove()
+      const block = createSourcesBlock(srcs)
+      // Insert after reasoning panel if present, otherwise at top before answer
+      if (details && details.parentElement === assistantWrap) {
+        details.insertAdjacentElement('afterend', block)
+      } else {
+        assistantWrap.insertBefore(block, answerEl)
+      }
+      sourcesWrap = block
+      const live = liveChats.get(sessionId)
+      if (live) {
+        live.sourcesWrap = block
+        live.sources = srcs
+      }
+      return block
+    }
+
     // Load-bearing accessor: nested-function reads of `details` never narrow
     // (see the AbortError branch), a bare read does.
     const currentDetails = (): HTMLDetailsElement | null => details
@@ -1192,19 +1401,34 @@ function wireChat(): void {
     const persistAssistant = (content: string, opts: { isAbort?: boolean } = {}): void => {
       const text = content || (opts.isAbort ? '' : '(empty reply)')
       const reasoning = thinking.trim()
+      const srcs = sources.length > 0 ? sources.map((s) => ({ ...s })) : undefined
       // Only mutate shared `history` if this session is still active; otherwise
       // we would pollute the new chat's history (the original bug).
       if (isActiveSession(sessionId)) {
         if (text) {
           history.add('assistant', text)
           const assistant = history.all[history.length - 1]
-          if (assistant && reasoning) assistant.thinking = reasoning
+          if (assistant) {
+            if (reasoning) assistant.thinking = reasoning
+            if (srcs) assistant.sources = srcs
+          }
           sessionStore.setMessages(sessionId, history.snapshot())
         } else {
+          // Persist reasoning/sources even when no content yet (e.g. abort)
+          if (reasoning || srcs) {
+            // Ensure an assistant placeholder exists to attach meta
+            history.add('assistant', text)
+            const assistant = history.all[history.length - 1]
+            if (assistant) {
+              if (reasoning) assistant.thinking = reasoning
+              if (srcs) assistant.sources = srcs
+            }
+          }
           sessionStore.setMessages(sessionId, history.snapshot())
         }
       } else {
-        if (text) sessionStore.appendMessages(sessionId, [{ role: 'assistant', content: text, ...(reasoning ? { thinking: reasoning } : {}) }])
+        if (text) sessionStore.appendMessages(sessionId, [{ role: 'assistant', content: text, ...(reasoning ? { thinking: reasoning } : {}), ...(srcs ? { sources: srcs } : {}) }])
+        else if (reasoning || srcs) sessionStore.appendMessages(sessionId, [{ role: 'assistant', content: text, ...(reasoning ? { thinking: reasoning } : {}), ...(srcs ? { sources: srcs } : {}) }])
       }
     }
 
@@ -1223,7 +1447,24 @@ function wireChat(): void {
           if (live) live.anyDelta = true
           pending.remove()
         }
-        if (chunk.type === 'thinking' && !contentStarted) {
+        if (chunk.type === 'sources') {
+          // Merge & dedupe by URL — multiple tool calls may emit incremental lists
+          const seen = new Set(sources.map((s) => s.url))
+          for (const s of chunk.sources) {
+            if (!s.url || seen.has(s.url)) continue
+            seen.add(s.url)
+            sources.push({ url: s.url, title: s.title, favicon: s.favicon })
+          }
+          if (live) live.sources = [...sources]
+          if (isActiveSession(sessionId)) ensureSourcesBlock(sources)
+          else if (live && live.root.parentElement === null) {
+            // Background session: still build block off-DOM so re-attach shows it
+            ensureSourcesBlock(sources)
+            // Detach again until session becomes active
+            if (sourcesWrap) sourcesWrap.remove()
+            if (live) live.sourcesWrap = sourcesWrap
+          }
+        } else if (chunk.type === 'thinking' && !contentStarted) {
           thinking += chunk.text
           if (live) live.thinking = thinking
           if (isActiveSession(sessionId)) sessionStore.setMessages(sessionId, history.snapshot())
@@ -1294,7 +1535,15 @@ function wireChat(): void {
     }
   }
 
+  const abortActive = (): void => {
+    const activeId = sessionStore.getActiveId()
+    if (activeId && sendingSessions.has(activeId)) {
+      abortControllers.get(activeId)?.abort()
+    }
+  }
+
   sendBtn.addEventListener('click', () => void doSend())
+  stopBtn?.addEventListener('click', () => abortActive())
   field.addEventListener('keydown', (event) => {
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault()
@@ -1302,10 +1551,7 @@ function wireChat(): void {
     }
     // Escape aborts the active session's in-flight stream only
     if (event.key === 'Escape') {
-      const activeId = sessionStore.getActiveId()
-      if (activeId && sendingSessions.has(activeId)) {
-        abortControllers.get(activeId)?.abort()
-      }
+      abortActive()
     }
   })
 
@@ -1349,18 +1595,22 @@ function wireChat(): void {
           column.appendChild(wrap)
         } else if (m.role === 'assistant') {
           // Already persisted assistant turns; live root holds the *current* pending turn
-          const wrap = document.createElement('div')
-          wrap.className = 'flex w-full flex-col gap-4'
-          const answerEl = document.createElement('div')
-          answerEl.className = 'w-full whitespace-pre-wrap break-words text-sm leading-relaxed text-ink'
-          answerEl.textContent = m.content
-          wrap.appendChild(answerEl)
-          column.appendChild(wrap)
+          // Include persisted sources so history shows the pill even before live attaches
+          column.appendChild(renderPersistedReasoning(m.content, m.thinking ?? '', m.sources))
         }
       }
       column.appendChild(live.root)
       // Sync answer text if it grew while detached
       live.answerEl.textContent = live.full
+      // Ensure sources pill is visible if it arrived while detached
+      if (live.sources.length > 0 && !live.sourcesWrap) {
+        // Re-create pill now that we're back on this session
+        const block = createSourcesBlock(live.sources)
+        const target = live.details ? live.details.nextSibling : live.answerEl
+        if (target) live.root.insertBefore(block, target as Node)
+        else live.root.insertBefore(block, live.answerEl)
+        live.sourcesWrap = block
+      }
       // Ensure pending visibility reflects live state
       if (live.anyDelta && live.pending.parentElement) live.pending.remove()
       thread.scrollTop = thread.scrollHeight
@@ -1378,7 +1628,7 @@ function wireChat(): void {
         wrap.appendChild(bubble)
         column.appendChild(wrap)
       } else if (m.role === 'assistant') {
-        column.appendChild(renderPersistedReasoning(m.content, m.thinking ?? ''))
+        column.appendChild(renderPersistedReasoning(m.content, m.thinking ?? '', m.sources))
       }
     }
     thread.scrollTop = thread.scrollHeight

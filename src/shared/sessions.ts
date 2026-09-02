@@ -11,6 +11,7 @@
  */
 
 import type { ChatMessage } from "./chat.ts";
+export type { Source } from "./chat.ts";
 
 export type ChatSession = {
   /** Stable id, e.g. `crypto.randomUUID()` or `Date.now` fallback. */
@@ -85,6 +86,16 @@ export function validateSession(raw: unknown): string | null {
     if (msg.role !== "user" && msg.role !== "assistant" && msg.role !== "system") return "Invalid message role";
     if (typeof msg.content !== "string") return "Invalid message content";
     if (msg.thinking !== undefined && typeof msg.thinking !== "string") return "Invalid message thinking";
+    if (msg.sources !== undefined) {
+      if (!Array.isArray(msg.sources)) return "Invalid message sources";
+      for (const src of msg.sources as unknown[]) {
+        if (!src || typeof src !== "object") return "Invalid source";
+        const so = src as Record<string, unknown>;
+        if (typeof so.url !== "string" || !so.url.trim()) return "Invalid source url";
+        if (so.title !== undefined && typeof so.title !== "string") return "Invalid source title";
+        if (so.favicon !== undefined && typeof so.favicon !== "string") return "Invalid source favicon";
+      }
+    }
   }
   return null;
 }

@@ -16,7 +16,7 @@ import {
   PROVIDERS_ROUTE,
   TIP_ROUTE,
 } from "../shared/constants.ts";
-import { validateChatRequest } from "../shared/chat.ts";
+import { validateChatRequest, type Source } from "../shared/chat.ts";
 import { greeting, tip } from "./views.ts";
 import { OllamaProvider } from "../providers/implementations/ollama.ts";
 import { OpenAIProvider } from "../providers/implementations/openai.ts";
@@ -33,6 +33,156 @@ import { McpManager } from "../mcp/manager.ts";
 import { createMcpRoutes } from "../mcp/routes.ts";
 import type { McpStore } from "../mcp/store.ts";
 import { MemoryMcpStore, createDefaultMcpStore } from "../mcp/store.ts";
+
+/** Extract http(s) URLs from free text. Deduped, capped. */
+function extractUrls(text: string): string[] {
+  const re = /https?:\/\/[^\s"'<>]+/g;
+  const matches = text.match(re);
+  if (!matches) return [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const m of matches) {
+    // Trim trailing punctuation unlikely to be part of URL
+    const cleaned = m.replace(/[),.\]]+$/, "");
+    if (!seen.has(cleaned)) {
+      seen.add(cleaned);
+      out.push(cleaned);
+    }
+    if (out.length >= 10) break;
+  }
+  return out;
+}
+
+/** Normalize a raw MCP tool result into `Source[]`. Handles EXA and generic shapes. */
+function extractSourcesFromMcpResult(raw: unknown): Source[] {
+  if (!raw) return [];
+  // Common MCP envelope: { content: [{ type:"text", text: "...json..." }] }
+  if (typeof raw === "object" && raw !== null && "content" in (raw as Record<string, unknown>)) {
+    const c = (raw as { content?: unknown }).content;
+    if (Array.isArray(c)) {
+      for (const item of c) {
+        if (item && typeof (item as Record<string, unknown>).text === "string") {
+          const text = (item as { text: string }).text;
+          // Try JSON first (EXA returns JSON stringified results)
+          try {
+            const parsed = JSON.parse(text) as unknown;
+            const nested = extractSourcesFromMcpResult(parsed);
+            if (nested.length > 0) return nested;
+          } catch {}
+          const urls = extractUrls(text);
+          if (urls.length > 0) return urls.map((url) => ({ url }));
+        }
+        if (item && typeof (item as Record<string, unknown>).url === "string") {
+          const u = item as Record<string, unknown>;
+          return [{ url: u.url as string, title: u.title as string | undefined }];
+        }
+      }
+    }
+  }
+  if (Array.isArray(raw)) {
+    const out: Source[] = [];
+    for (const v of raw) {
+      if (v && typeof v === "object" && typeof (v as Record<string, unknown>).url === "string") {
+        const r = v as Record<string, unknown>;
+        out.push({ url: r.url as string, title: r.title as string | undefined, favicon: r.favicon as string | undefined });
+      } else if (typeof v === "string" && v.startsWith("http")) {
+        out.push({ url: v });
+      }
+    }
+    if (out.length > 0) return out.slice(0, 10);
+  }
+  if (typeof raw === "object" && raw !== null) {
+    const obj = raw as Record<string, unknown>;
+    // EXA shape: { results: [{ url, title, ... }] }
+    if (Array.isArray(obj.results)) {
+      const out: Source[] = [];
+      for (const r of obj.results as unknown[]) {
+        if (r && typeof r === "object" && typeof (r as Record<string, unknown>).url === "string") {
+          const rr = r as Record<string, unknown>;
+          out.push({ url: rr.url as string, title: (rr.title as string) ?? (rr.url as string), favicon: rr.favicon as string | undefined });
+        }
+      }
+      if (out.length > 0) return out.slice(0, 10);
+    }
+    if (Array.isArray(obj.sources)) {
+      const nested = extractSourcesFromMcpResult(obj.sources);
+      if (nested.length > 0) return nested;
+    }
+    // Fallback: scrape URLs from JSON string
+    try {
+      const urls = extractUrls(JSON.stringify(obj));
+      if (urls.length > 0) return urls.slice(0, 10).map((url) => ({ url }));
+    } catch {}
+  }
+  if (typeof raw === "string") {
+    const urls = extractUrls(raw);
+    if (urls.length > 0) return urls.map((url) => ({ url }));
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      return extractSourcesFromMcpResult(parsed);
+    } catch {}
+  }
+  return [];
+}
+
+/**
+ * Attempt a web search via MCP when tools are enabled. Returns sources on
+ * success, empty array otherwise. Only runs when a search-capable server
+ * exists — safe to call unconditionally when `toolsEnabled` is true.
+ */
+async function collectWebSources(
+  manager: McpManager,
+  query: string,
+  signal?: AbortSignal,
+): Promise<Source[]> {
+  if (!query.trim()) return [];
+  if (signal?.aborted) return [];
+  try {
+    const infos = await manager.listInfos();
+    // Prefer a connected server; otherwise try to connect the first enabled http/sse server
+    let candidateId: string | null = null;
+    let candidateToolName: string | null = null;
+
+    for (const info of infos) {
+      if (info.enabled === false) continue;
+      let tools = info.tools ?? [];
+      // If not connected but enabled, try to connect to discover tools
+      if (info.status !== "connected" || tools.length === 0) {
+        try {
+          const connected = await manager.connect(info.id);
+          tools = connected.tools ?? [];
+        } catch {
+          continue;
+        }
+      }
+      const searchTool = tools.find((t) => /search/i.test(t.name));
+      if (searchTool) {
+        candidateId = info.id;
+        candidateToolName = searchTool.name;
+        break;
+      }
+    }
+    if (!candidateId || !candidateToolName) return [];
+
+    // EXA expects { query, numResults?, ... } — keep generic
+    const args: Record<string, unknown> = { query, numResults: 5 };
+    // Some servers use `q` or `query` — try query first, fallback handled by server
+    const raw = await manager.callTool(candidateId, candidateToolName, args);
+    const sources = extractSourcesFromMcpResult(raw);
+    // Dedupe by URL
+    const seen = new Set<string>();
+    const deduped: Source[] = [];
+    for (const s of sources) {
+      if (!s.url || seen.has(s.url)) continue;
+      seen.add(s.url);
+      deduped.push(s);
+      if (deduped.length >= 5) break;
+    }
+    return deduped;
+  } catch {
+    return [];
+  }
+}
 
 export type CreateAppOptions = {
   /** Override the registry (useful for tests). */
@@ -313,19 +463,33 @@ export function createApp(options: CreateAppOptions = {}) {
 
     if (stream) {
       // Stream as SSE. Each chunk is `data: {"delta":"..."}\n\n` for visible
-      // answer text or `data: {"thinking":"..."}` for the model's reasoning
-      // trace, closed with `data: [DONE]`.
+      // answer text, `data: {"thinking":"..."}` for the model's reasoning
+      // trace, or `data: {"sources": [...]}` for the web-search pill (only
+      // when a successful MCP web search was performed). Closed with
+      // `data: [DONE]`.
       const encoder = new TextEncoder();
       const chatToolsEnabled = toolsEnabled !== false;
-      // When tools are enabled, we could attach MCP tools here. For now we
-      // forward the flag so providers can gate tool exposure; the flag is
-      // per-chat and defaults to true (see shared/chat.ts and sessions.ts).
-      // Future: if (chatToolsEnabled) { tools = await mcpManager.listInfos() ... }
-      void mcpManager;
-      void chatToolsEnabled;
+      const lastUser = [...messages].reverse().find((m) => m.role === "user");
+      const queryForSearch = lastUser?.content ?? "";
       const readable = new ReadableStream<Uint8Array>({
         async start(controller) {
           try {
+            // Kick off a web-search via MCP when tools are enabled. On
+            // success we emit a `sources` event *before* the answer deltas
+            // so the UI can show the "5 source(s) >" pill above the reply.
+            // Only successful searches produce a pill — no pill otherwise.
+            if (chatToolsEnabled && queryForSearch.trim()) {
+              try {
+                const sources = await collectWebSources(mcpManager, queryForSearch, c.req.raw.signal);
+                if (sources.length > 0 && !c.req.raw.signal.aborted) {
+                  const line = `data: ${JSON.stringify({ sources })}\n\n`;
+                  controller.enqueue(encoder.encode(line));
+                }
+              } catch {
+                // Search failure is non-fatal — continue to chat without sources
+              }
+            }
+
             const iterator = provider.chatStream
               ? provider.chatStream({ model, messages, signal: c.req.raw.signal, toolsEnabled: chatToolsEnabled })
               : (async function* () {
@@ -370,12 +534,24 @@ export function createApp(options: CreateAppOptions = {}) {
 
     try {
       const chatToolsEnabled = toolsEnabled !== false;
+      const lastUser = [...messages].reverse().find((m) => m.role === "user");
+      const queryForSearch = lastUser?.content ?? "";
+      let sources: Source[] | undefined;
+      if (chatToolsEnabled && queryForSearch.trim()) {
+        try {
+          const collected = await collectWebSources(mcpManager, queryForSearch, c.req.raw.signal);
+          if (collected.length > 0) sources = collected;
+        } catch {
+          // ignore
+        }
+      }
       const result = await provider.chat({ model, messages, signal: c.req.raw.signal, toolsEnabled: chatToolsEnabled });
       return c.json({
         content: result.content,
         model: result.model,
         providerId: result.providerId,
         finishReason: result.finishReason ?? null,
+        ...(sources ? { sources } : {}),
       });
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);

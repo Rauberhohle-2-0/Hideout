@@ -23,10 +23,10 @@
  * ```
  */
 
-import type { ChatMessage, ChatRequest, ChatResponse } from "../shared/chat.ts";
+import type { ChatMessage, ChatRequest, ChatResponse, Source } from "../shared/chat.ts";
 import { CHAT_ROUTE } from "../shared/constants.ts";
 
-export type { ChatMessage, ChatRequest, ChatResponse } from "../shared/chat.ts";
+export type { ChatMessage, ChatRequest, ChatResponse, Source } from "../shared/chat.ts";
 
 /** Key in localStorage for the currently selected model. */
 export const SELECTED_MODEL_KEY = "hideout.selectedModel";
@@ -142,14 +142,14 @@ export async function chat(options: ChatOptions): Promise<ChatResponse> {
     model: data.model,
     providerId: data.providerId,
     finishReason: data.finishReason ?? undefined,
+    sources: (data as ChatResponse).sources,
   };
 }
 
-/** One chunk of a streaming reply: reasoning (`thinking`) or visible answer text. */
-export type ChatStreamChunk = {
-  type: "thinking" | "content";
-  text: string;
-};
+/** One chunk of a streaming reply: reasoning (`thinking`), visible answer text, or sources pill. */
+export type ChatStreamChunk =
+  | { type: "thinking" | "content"; text: string }
+  | { type: "sources"; sources: Source[] };
 
 /**
  * Streaming chat — yields deltas as they arrive.
@@ -197,9 +197,15 @@ export async function* chatStream(options: ChatOptions): AsyncIterable<ChatStrea
           const data = trimmed.slice(6);
           if (data === "[DONE]") return;
           try {
-            const obj = JSON.parse(data) as { delta?: string; thinking?: string; error?: string };
+            const obj = JSON.parse(data) as { delta?: string; thinking?: string; sources?: Source[]; error?: string };
             if (obj.error) throw new Error(obj.error);
-            if (obj.thinking) yield { type: "thinking", text: obj.thinking };
+            if (obj.sources && Array.isArray(obj.sources) && obj.sources.length > 0) {
+              // Validate minimal shape before yielding — malformed sources are ignored
+              const normalized = (obj.sources as unknown[]).filter(
+                (s): s is Source => !!s && typeof (s as Record<string, unknown>).url === "string",
+              ) as Source[];
+              if (normalized.length > 0) yield { type: "sources", sources: normalized };
+            } else if (obj.thinking) yield { type: "thinking", text: obj.thinking };
             else if (obj.delta) yield { type: "content", text: obj.delta };
           } catch (e) {
             if (e instanceof SyntaxError) continue;
@@ -213,8 +219,13 @@ export async function* chatStream(options: ChatOptions): AsyncIterable<ChatStrea
       const data = buf.trim().slice(6);
       if (data !== "[DONE]" && data) {
         try {
-          const obj = JSON.parse(data) as { delta?: string; thinking?: string };
-          if (obj.thinking) yield { type: "thinking", text: obj.thinking };
+          const obj = JSON.parse(data) as { delta?: string; thinking?: string; sources?: Source[] };
+          if (obj.sources && Array.isArray(obj.sources) && obj.sources.length > 0) {
+            const normalized = (obj.sources as unknown[]).filter(
+              (s): s is Source => !!s && typeof (s as Record<string, unknown>).url === "string",
+            ) as Source[];
+            if (normalized.length > 0) yield { type: "sources", sources: normalized };
+          } else if (obj.thinking) yield { type: "thinking", text: obj.thinking };
           else if (obj.delta) yield { type: "content", text: obj.delta };
         } catch {}
       }
