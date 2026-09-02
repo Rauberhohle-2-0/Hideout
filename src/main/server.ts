@@ -126,17 +126,227 @@ function extractSourcesFromMcpResult(raw: unknown): Source[] {
 }
 
 /**
+ * Heuristic: does this user message likely need a web search?
+ *
+ * The old behavior called MCP search for *every* chat when tools were
+ * enabled. That is wasteful for greetings, small-talk, creative,
+ * coding, or chit-chat turns. This heuristic is intentionally
+ * conservative: greetings/short casual messages return false, only
+ * informational / time-sensitive / explicit-search queries return true.
+ * The wrench toggle (`toolsEnabled`) remains the master switch — when
+ * the user disables tools, no search happens regardless of this check.
+ *
+ * Exported for testing.
+ */
+export function shouldUseWebSearch(query: string): boolean {
+  const trimmed = query.trim();
+  if (!trimmed) return false;
+  if (trimmed.length < 8) return false;
+
+  const lower = trimmed.toLowerCase();
+
+  // Explicit opt-in always searches (user typed /search or "search:" prefix)
+  if (/^\/(search|web)\b/i.test(trimmed)) return true;
+  if (/^search:\s*/i.test(trimmed)) return true;
+
+  // Greetings / small-talk / acknowledgements — never search
+  if (
+    /^(hi|hello|hey|hiya|yo|sup|howdy|greetings|good\s*(morning|afternoon|evening|night)|thanks|thank\s*you|thank\s*ya|thx|ok|okay|got\s*it|sure|great|awesome|cool|nice|perfect|bye|goodbye|see\s*you|later|cya|cheers|lol|haha|hehe)[!?.\s]*$/i.test(
+      lower,
+    )
+  ) {
+    return false;
+  }
+  // Short social prompts like "how are you?" / "what's up?"
+  if (/^(how\s+are\s+you|how\s+is\s+it\s+going|what'?s\s+up|how\s+are\s+things|how\s+can\s+you\s+help)[?!.]*$/i.test(lower)) {
+    return false;
+  }
+  // Very short without question/keyword — likely casual
+  if (trimmed.length < 20 && !/[?]/.test(trimmed)) {
+    return false;
+  }
+
+  // Tiered signals: strong = needs fresh web data on its own;
+  // weak = generic question words — only valuable with time-sensitivity.
+  const strongSignals =
+    /\b(latest|recent|current|today|tomorrow|yesterday|news|weather|price|prices|stock|stocks|score|scores|update|updates|release|released|announced|trending|forecast|schedule|results|upcoming|outage|status|20\d{2})\b/i;
+  const weakSignals = /\b(what|who|when|where|why|how|which)\b/i;
+  const timeSensitive = /\b(20\d{2}|today|this\s+week|this\s+month|currently|right\s+now)\b/i;
+  const explicitSearchPhrase = /\b(search\s+the\s+web|look\s*up|google\s+it|browse|find\s+out)\b/i;
+
+  // Strong signals always warrant a search (e.g. "price today", "latest news", "2026")
+  if (strongSignals.test(trimmed)) return true;
+  if (explicitSearchPhrase.test(trimmed)) return true;
+  // Weak question words alone (e.g. "What is 2+2?") are NOT enough — require time-sensitivity
+  if (weakSignals.test(trimmed) && timeSensitive.test(trimmed)) return true;
+
+  // Default: conversational / creative / coding help without external facts -> no search
+  return false;
+}
+
+/** Enriched item extracted from EXA / generic MCP search results. */
+type SearchItem = { url: string; title?: string; text?: string };
+
+/** Extract structured items (url + title + snippet) from raw MCP results. */
+function extractSearchItems(raw: unknown): SearchItem[] {
+  if (!raw) return [];
+  // MCP envelope: { content: [{ type:"text", text: "...json..." }] }
+  if (typeof raw === "object" && raw !== null && "content" in (raw as Record<string, unknown>)) {
+    const c = (raw as { content?: unknown }).content;
+    if (Array.isArray(c)) {
+      for (const item of c) {
+        if (item && typeof (item as Record<string, unknown>).text === "string") {
+          const text = (item as { text: string }).text;
+          try {
+            const parsed = JSON.parse(text) as unknown;
+            const nested = extractSearchItems(parsed);
+            if (nested.length > 0) return nested;
+          } catch {}
+          // If text is not JSON, it may already be a snippet — but without URL we can't make an item
+          const urls = extractUrls(text);
+          if (urls.length > 0) return urls.map((url) => ({ url, text: text.slice(0, 600) }));
+        }
+        if (item && typeof (item as Record<string, unknown>).url === "string") {
+          const u = item as Record<string, unknown>;
+          const txt = typeof u.text === "string" ? (u.text as string) : typeof u.snippet === "string" ? (u.snippet as string) : undefined;
+          return [{ url: u.url as string, title: u.title as string | undefined, text: txt?.slice(0, 800) }];
+        }
+      }
+    }
+  }
+  if (Array.isArray(raw)) {
+    const out: SearchItem[] = [];
+    for (const v of raw) {
+      if (v && typeof v === "object" && typeof (v as Record<string, unknown>).url === "string") {
+        const r = v as Record<string, unknown>;
+        const txt =
+          typeof r.text === "string"
+            ? (r.text as string)
+            : typeof r.snippet === "string"
+              ? (r.snippet as string)
+              : typeof r.summary === "string"
+                ? (r.summary as string)
+                : undefined;
+        out.push({ url: r.url as string, title: r.title as string | undefined, text: txt?.slice(0, 800) });
+      } else if (typeof v === "string" && v.startsWith("http")) {
+        out.push({ url: v });
+      }
+    }
+    if (out.length > 0) return out.slice(0, 10);
+  }
+  if (typeof raw === "object" && raw !== null) {
+    const obj = raw as Record<string, unknown>;
+    if (Array.isArray(obj.results)) {
+      const out: SearchItem[] = [];
+      for (const r of obj.results as unknown[]) {
+        if (r && typeof r === "object" && typeof (r as Record<string, unknown>).url === "string") {
+          const rr = r as Record<string, unknown>;
+          const txt =
+            typeof rr.text === "string"
+              ? (rr.text as string)
+              : typeof rr.snippet === "string"
+                ? (rr.snippet as string)
+                : typeof rr.summary === "string"
+                  ? (rr.summary as string)
+                  : Array.isArray(rr.highlights) && rr.highlights.length > 0 && typeof rr.highlights[0] === "string"
+                    ? (rr.highlights as string[]).join(" ").slice(0, 800)
+                    : typeof rr.description === "string"
+                      ? (rr.description as string)
+                      : undefined;
+          out.push({ url: rr.url as string, title: (rr.title as string) ?? (rr.url as string), text: txt?.slice(0, 800) });
+        }
+      }
+      if (out.length > 0) return out.slice(0, 10);
+    }
+    if (Array.isArray(obj.sources)) {
+      const nested = extractSearchItems(obj.sources);
+      if (nested.length > 0) return nested;
+    }
+    if (Array.isArray(obj.items)) {
+      const nested = extractSearchItems(obj.items);
+      if (nested.length > 0) return nested;
+    }
+    try {
+      const urls = extractUrls(JSON.stringify(obj));
+      if (urls.length > 0) return urls.slice(0, 10).map((url) => ({ url }));
+    } catch {}
+  }
+  if (typeof raw === "string") {
+    const urls = extractUrls(raw);
+    if (urls.length > 0) return urls.map((url) => ({ url, text: raw.slice(0, 600) }));
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      return extractSearchItems(parsed);
+    } catch {}
+  }
+  return [];
+}
+
+/** Build a grounding context block from search items. Exported for testing. */
+export function buildSearchContext(items: SearchItem[], query: string): string {
+  if (items.length === 0) return "";
+  const date = new Date().toISOString().slice(0, 10);
+  const lines = items
+    .slice(0, 5)
+    .map((it, i) => {
+      const title = it.title?.trim() ? it.title.trim() : it.url;
+      const snippet = it.text?.trim() ? ` — ${it.text.trim().slice(0, 400)}` : "";
+      return `[${i + 1}] ${title} — ${it.url}${snippet}`;
+    })
+    .join("\n");
+  return `Current date: ${date}\nWeb search results for "${query}":\n${lines}\n\nInstructions: You MUST answer based on these web search results. They are current and authoritative. If they conflict with your prior knowledge, prefer the search results. Cite sources when possible.`;
+}
+
+/** Inject grounding context as a system message so the LLM sees the search results. */
+export function buildGroundedMessages(
+  messages: Array<{ role: "user" | "assistant" | "system"; content: string }>,
+  context: string,
+): Array<{ role: "user" | "assistant" | "system"; content: string }> {
+  if (!context.trim()) return messages;
+  // System messages MUST be at the start for Ollama / many chat templates.
+  // Trailing `system` after `user` triggers 500 `System message must be first`
+  // on Ollama (jinja template `raise_exception`). Prepend (and merge if a
+  // system already exists) so Ollama, OpenAI and Anthropic all stay happy:
+  // - Ollama: single leading system -> template OK
+  // - Anthropic: all system parts are concatenated regardless of position
+  // - OpenAI: leading system is canonical
+  if (messages.length > 0 && messages[0]!.role === "system") {
+    const merged: { role: "system"; content: string } = {
+      role: "system",
+      content: `${messages[0]!.content}\n\n${context}`,
+    };
+    return [merged, ...messages.slice(1)];
+  }
+  return [{ role: "system", content: context }, ...messages];
+}
+
+/**
  * Attempt a web search via MCP when tools are enabled. Returns sources on
  * success, empty array otherwise. Only runs when a search-capable server
  * exists — safe to call unconditionally when `toolsEnabled` is true.
+ * Exported for backwards compatibility; prefer `collectWebSearch` which also
+ * returns grounding context for the LLM.
  */
-async function collectWebSources(
+export async function collectWebSources(
   manager: McpManager,
   query: string,
   signal?: AbortSignal,
 ): Promise<Source[]> {
-  if (!query.trim()) return [];
-  if (signal?.aborted) return [];
+  const res = await collectWebSearch(manager, query, signal);
+  return res.sources;
+}
+
+/**
+ * Attempt a web search via MCP and return both Sources (for UI) and a grounding
+ * context string (for the LLM). Exported for testing.
+ */
+export async function collectWebSearch(
+  manager: McpManager,
+  query: string,
+  signal?: AbortSignal,
+): Promise<{ sources: Source[]; context: string; items: SearchItem[] }> {
+  if (!query.trim()) return { sources: [], context: "", items: [] };
+  if (signal?.aborted) return { sources: [], context: "", items: [] };
   try {
     const infos = await manager.listInfos();
     // Prefer a connected server; otherwise try to connect the first enabled http/sse server
@@ -162,13 +372,17 @@ async function collectWebSources(
         break;
       }
     }
-    if (!candidateId || !candidateToolName) return [];
+    if (!candidateId || !candidateToolName) return { sources: [], context: "", items: [] };
 
     // EXA expects { query, numResults?, ... } — keep generic
     const args: Record<string, unknown> = { query, numResults: 5 };
     // Some servers use `q` or `query` — try query first, fallback handled by server
     const raw = await manager.callTool(candidateId, candidateToolName, args);
-    const sources = extractSourcesFromMcpResult(raw);
+    const items = extractSearchItems(raw);
+    // Fallback to old extractor if enriched extraction missed URLs
+    const fallbackSources = items.length === 0 ? extractSourcesFromMcpResult(raw) : [];
+    const sourcesFromItems: Source[] = items.map((it) => ({ url: it.url, title: it.title ?? it.url }));
+    const sources = sourcesFromItems.length > 0 ? sourcesFromItems : fallbackSources;
     // Dedupe by URL
     const seen = new Set<string>();
     const deduped: Source[] = [];
@@ -178,9 +392,13 @@ async function collectWebSources(
       deduped.push(s);
       if (deduped.length >= 5) break;
     }
-    return deduped;
+    const dedupedItems = deduped
+      .map((s) => items.find((it) => it.url === s.url) ?? { url: s.url, title: s.title })
+      .slice(0, 5);
+    const context = dedupedItems.length > 0 ? buildSearchContext(dedupedItems, query) : "";
+    return { sources: deduped, context, items: dedupedItems };
   } catch {
-    return [];
+    return { sources: [], context: "", items: [] };
   }
 }
 
@@ -474,16 +692,21 @@ export function createApp(options: CreateAppOptions = {}) {
       const readable = new ReadableStream<Uint8Array>({
         async start(controller) {
           try {
-            // Kick off a web-search via MCP when tools are enabled. On
-            // success we emit a `sources` event *before* the answer deltas
-            // so the UI can show the "5 source(s) >" pill above the reply.
-            // Only successful searches produce a pill — no pill otherwise.
-            if (chatToolsEnabled && queryForSearch.trim()) {
+            // Kick off a web-search via MCP when tools are enabled *and*
+            // the query looks like it needs fresh web info. The heuristic
+            // avoids searching for greetings / small-talk / casual chat.
+            // Only successful searches produce a `sources` pill — no pill otherwise.
+            // Crucially, the search context is injected into the LLM messages so
+            // the model's answer is grounded in the fresh results (fixes the
+            // bug where sources were shown in the UI but not seen by the model).
+            let groundedMessages = messages;
+            if (chatToolsEnabled && queryForSearch.trim() && shouldUseWebSearch(queryForSearch)) {
               try {
-                const sources = await collectWebSources(mcpManager, queryForSearch, c.req.raw.signal);
+                const { sources, context } = await collectWebSearch(mcpManager, queryForSearch, c.req.raw.signal);
                 if (sources.length > 0 && !c.req.raw.signal.aborted) {
                   const line = `data: ${JSON.stringify({ sources })}\n\n`;
                   controller.enqueue(encoder.encode(line));
+                  if (context) groundedMessages = buildGroundedMessages(messages, context);
                 }
               } catch {
                 // Search failure is non-fatal — continue to chat without sources
@@ -491,9 +714,9 @@ export function createApp(options: CreateAppOptions = {}) {
             }
 
             const iterator = provider.chatStream
-              ? provider.chatStream({ model, messages, signal: c.req.raw.signal, toolsEnabled: chatToolsEnabled })
+              ? provider.chatStream({ model, messages: groundedMessages, signal: c.req.raw.signal, toolsEnabled: chatToolsEnabled })
               : (async function* () {
-                  const res = await provider.chat({ model, messages, signal: c.req.raw.signal, toolsEnabled: chatToolsEnabled });
+                  const res = await provider.chat({ model, messages: groundedMessages, signal: c.req.raw.signal, toolsEnabled: chatToolsEnabled });
                   if (res.content) yield { type: "content" as const, text: res.content };
                 })();
             for await (const chunk of iterator) {
@@ -537,15 +760,19 @@ export function createApp(options: CreateAppOptions = {}) {
       const lastUser = [...messages].reverse().find((m) => m.role === "user");
       const queryForSearch = lastUser?.content ?? "";
       let sources: Source[] | undefined;
-      if (chatToolsEnabled && queryForSearch.trim()) {
+      let groundedMessages = messages;
+      if (chatToolsEnabled && queryForSearch.trim() && shouldUseWebSearch(queryForSearch)) {
         try {
-          const collected = await collectWebSources(mcpManager, queryForSearch, c.req.raw.signal);
-          if (collected.length > 0) sources = collected;
+          const collected = await collectWebSearch(mcpManager, queryForSearch, c.req.raw.signal);
+          if (collected.sources.length > 0) {
+            sources = collected.sources;
+            if (collected.context) groundedMessages = buildGroundedMessages(messages, collected.context);
+          }
         } catch {
           // ignore
         }
       }
-      const result = await provider.chat({ model, messages, signal: c.req.raw.signal, toolsEnabled: chatToolsEnabled });
+      const result = await provider.chat({ model, messages: groundedMessages, signal: c.req.raw.signal, toolsEnabled: chatToolsEnabled });
       return c.json({
         content: result.content,
         model: result.model,
