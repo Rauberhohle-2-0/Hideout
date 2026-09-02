@@ -5,15 +5,15 @@
     "": {
       "name": "hideout",
       "dependencies": {
-        "@vantail/api": "^0.1.19",
+        "@vantail/api": "^0.1.21",
         "hono": "^4.13.5",
-        "lucide": "^1.38.0",
+        "lucide": "^1.39.0",
       },
       "devDependencies": {
         "@tailwindcss/vite": "^4.3.3",
         "@types/bun": "^1.4.0",
-        "@vantail/cli": "^0.1.19",
-        "@vantail/vite": "^0.1.19",
+        "@vantail/cli": "^0.1.21",
+        "@vantail/vite": "^0.1.21",
         "tailwindcss": "^4.3.3",
         "typescript": "^7.0.2",
         "vite": "^8.2.2",
@@ -149,7 +149,7 @@
 
     "@types/bun": ["@types/bun@1.4.0", "", { "dependencies": { "bun-types": "1.4.0" } }, "sha512-K+lZULY23vRgK/CfTjFIV+tyifaNdSMlPh9j+6mQ/cLfpOznLyAuzgV/JQysyECpkBQLVMSyvjlr2fBUSA9wFQ=="],
 
-    "@types/node": ["@types/node@26.4.0", "", { "dependencies": { "undici-types": "~8.3.0" } }, "sha512-faiGnoIrLH/V8cibOMEAZ8pMw6oXqSukl29ra4mN8GdaB2ZewzeaLj+INpV5N+Z1eKWzY+IzaIZH2EIR6YZRNQ=="],
+    "@types/node": ["@types/node@26.4.1", "", { "dependencies": { "undici-types": "~8.3.0" } }, "sha512-k97ENvZWtvA6yqz5/FS6a7duDgOPEeOQOc2iKS/nY6mX6qJUKtLnWzQS+Xj6tXweyj6ZcTAK2Qecetnvi9nCLA=="],
 
     "@typescript/typescript-aix-ppc64": ["@typescript/typescript-aix-ppc64@7.0.2", "", { "os": "aix", "cpu": "ppc64" }, "sha512-MTKKkWB7p/0E9xi1d1tHtZ5PiLkGEMIq88pK2CubZjOsLtYTLqhgIgi6zepFa+9GHZ6h05NMCkQxGKiPXMxXtQ=="],
 
@@ -191,35 +191,35 @@
 
     "@typescript/typescript-win32-x64": ["@typescript/typescript-win32-x64@7.0.2", "", { "os": "win32", "cpu": "x64" }, "sha512-0BQ3HkAHHlKLSp1qRvf3SUhGpGsDuhB/jgFw75guyqbxJqEaS0Cw/VFO8i2nHglJUzQCRtMMR/IBAKE3ETMC4g=="],
 
-    "@vantail/api": ["@vantail/api@0.1.19", "", {}, "sha512-R7lD/wEvzEqejWSH5kFbk2x/rF/9XuK9Zla3WI2cI7k9uIFdTYOds7saxWigSJyzUm58tOoMYgWsR72RH9fuMw=="],
+    "@vantail/api": ["@vantail/api@0.1.21", "", {}, "sha512-FWQjQh45yTcDs4aaY673OEmnzsMK+lPNyqZP+AJfUS3V+iBUIY1Z+zFv1pG083ZkWqcPoEvoNnsxMgs6WX5j0g=="],
 
-    "@vantail/cli": ["@vantail/cli@0.1.19", "", { "dependencies": { "@vantail/runtime": "^0.1.19", "@vantail/shared": "^0.1.19", "@vantail/vite": "^0.1.19" }, "peerDependencies": { "vite": "^5.0.0 || ^6.0.0 || ^7.0.0 || ^8.0.0" }, "bin": { "vantail": "dist/bin.js" } }, "sha512-gci23Zp8mOlELh+yainy9kK+0lSm6eJs6oui+nVUC1RVyUXUrI0KgdwlFQn0JDMWQRPU1ab+BUGfApYbvRq5pQ=="],
+    "@vantail/cli": ["@vantail/cli@0.1.21", "", { "dependencies": { "@vantail/runtime": "^0.1.21", "@vantail/shared": "^0.1.21", "@vantail/vite": "^0.1.21" }, "peerDependencies": { "vite": "^5.0.0 || ^6.0.0 || ^7.0.0 || ^8.0.0" }, "bin": { "vantail": "dist/bin.js" } }, "sha512-XcG4jywlOlbgRqCADDEci7zVFiekwgXrOdd5dk9G8xV9aTW6xtaTWQmfFZRKIq300cfK8cWiNymYyk9C7C1t5A=="],
 
-    "@vantail/runtime": ["@vantail/runtime@0.1.19", "", { "optionalDependencies": { "@vantail/runtime-darwin-arm64": "0.1.19", "@vantail/runtime-darwin-arm64-sqlcipher": "0.1.19", "@vantail/runtime-linux-arm64": "0.1.19", "@vantail/runtime-linux-arm64-sqlcipher": "0.1.19", "@vantail/runtime-linux-x64": "0.1.19", "@vantail/runtime-linux-x64-sqlcipher": "0.1.19", "@vantail/runtime-win32-arm64": "0.1.19", "@vantail/runtime-win32-arm64-sqlcipher": "0.1.19", "@vantail/runtime-win32-x64": "0.1.19", "@vantail/runtime-win32-x64-sqlcipher": "0.1.19" } }, "sha512-ZHtUHx00n+Db/WyP5L//F4cXt7RSqpqpiHWbnLQ5RHV+UUfweEL9Uij7Ihx3CJE4ayfrQMLv25Z1CBAQjGtvgA=="],
+    "@vantail/runtime": ["@vantail/runtime@0.1.21", "", { "optionalDependencies": { "@vantail/runtime-darwin-arm64": "0.1.21", "@vantail/runtime-darwin-arm64-sqlcipher": "0.1.21", "@vantail/runtime-linux-arm64": "0.1.21", "@vantail/runtime-linux-arm64-sqlcipher": "0.1.21", "@vantail/runtime-linux-x64": "0.1.21", "@vantail/runtime-linux-x64-sqlcipher": "0.1.21", "@vantail/runtime-win32-arm64": "0.1.21", "@vantail/runtime-win32-arm64-sqlcipher": "0.1.21", "@vantail/runtime-win32-x64": "0.1.21", "@vantail/runtime-win32-x64-sqlcipher": "0.1.21" } }, "sha512-FqwC0aajQ8LnMu4MOvHakhqvg/LHr+psoe9VQEl3ar8r/PyrMyfbwlGFXnJ3H+tvYAGV007AHqvGB3mWA6A9Eg=="],
 
-    "@vantail/runtime-darwin-arm64": ["@vantail/runtime-darwin-arm64@0.1.19", "", { "os": "darwin", "cpu": "arm64" }, "sha512-zZ8vv3m3dTiVsJij+PwtW9YbRDe05ltSN21feGcb+Z7IjoLoz9OSi6CKPk/77cP8JR6S2uMYGc1ARkQ/pXzw8Q=="],
+    "@vantail/runtime-darwin-arm64": ["@vantail/runtime-darwin-arm64@0.1.21", "", { "os": "darwin", "cpu": "arm64" }, "sha512-o1OLkukOzm/8Txtc1sGj7snMShxOysTxwqXosXamZsW+qi+09B79kycEd1V/eDaoCiaEaBmgctja2RAQqZoYxg=="],
 
-    "@vantail/runtime-darwin-arm64-sqlcipher": ["@vantail/runtime-darwin-arm64-sqlcipher@0.1.19", "", { "os": "darwin", "cpu": "arm64" }, "sha512-CTRXEIHC4AoEneTmvbAUbZOOg2uQSodiamqXWqoYHatWuPu3bbgqOZE0jGRWPvi0sHZJ47TvFDSTDocIcFaIvA=="],
+    "@vantail/runtime-darwin-arm64-sqlcipher": ["@vantail/runtime-darwin-arm64-sqlcipher@0.1.21", "", { "os": "darwin", "cpu": "arm64" }, "sha512-oSx9trz/md3W9xSACzKIuy0W9NCPF9ALNtJ14vPgaUqSBgFoKY3VqSA1R36lyNmHcnBEDUm3zXAZ7BO13i7yqA=="],
 
-    "@vantail/runtime-linux-arm64": ["@vantail/runtime-linux-arm64@0.1.19", "", { "os": "linux", "cpu": "arm64" }, "sha512-uaLk+2sdERQ7wYRvwBxc+eoMHKUZCYHLKP/9BII0772H/gyPqf/M3S5NJLzQq9SZyHaFnP1EdB6Ti/BYM9U1qg=="],
+    "@vantail/runtime-linux-arm64": ["@vantail/runtime-linux-arm64@0.1.21", "", { "os": "linux", "cpu": "arm64" }, "sha512-l1FK6mZi9l5jPcPHa3v4wRkiPHYGfpkEnIpTM58ykf0zMD2OPSd/XAWRS1ODLP3JckA6rMRO0QWfE9dC9rEdPQ=="],
 
-    "@vantail/runtime-linux-arm64-sqlcipher": ["@vantail/runtime-linux-arm64-sqlcipher@0.1.19", "", { "os": "linux", "cpu": "arm64" }, "sha512-xnifvJmcnldMZs5XACfR9I72CNzbi1Dp9IKG9JQE5TvtkjxnoMb046EmUo7rjuvqVbc5pT55aUndVmyqMHHAhw=="],
+    "@vantail/runtime-linux-arm64-sqlcipher": ["@vantail/runtime-linux-arm64-sqlcipher@0.1.21", "", { "os": "linux", "cpu": "arm64" }, "sha512-/lQkEgaWh0gyhp5bkf7N/ftTJEVAF/KRSctBlFK+SPF3MTlfUl2E6v+568D3A4oTI83ynh6MvXt31+vk25ROew=="],
 
-    "@vantail/runtime-linux-x64": ["@vantail/runtime-linux-x64@0.1.19", "", { "os": "linux", "cpu": "x64" }, "sha512-MjDguln4JK4SYjKSlDM+gyexdcytPxbUJERpwzoiMH1v6HkjMol3TZ9FbgtZidC2M6qlJQpSIi+HhNRiuqZz/A=="],
+    "@vantail/runtime-linux-x64": ["@vantail/runtime-linux-x64@0.1.21", "", { "os": "linux", "cpu": "x64" }, "sha512-pKuaEOmbD/gsu2OG+FXYCoq1BJ6v36mpCsHKH70n89UDszWbzDaUNcowj4QzuBB/1xI9IzwF5HATSXEZ3R0h/g=="],
 
-    "@vantail/runtime-linux-x64-sqlcipher": ["@vantail/runtime-linux-x64-sqlcipher@0.1.19", "", { "os": "linux", "cpu": "x64" }, "sha512-RNY6k2G0YSpbGiSmIfiP08gWGEGOdQ14jmUozb4RODFKLbFCNtEJjqPRqOvBPf4H6xEBSvnPc5jQjuj++ZiPYA=="],
+    "@vantail/runtime-linux-x64-sqlcipher": ["@vantail/runtime-linux-x64-sqlcipher@0.1.21", "", { "os": "linux", "cpu": "x64" }, "sha512-O6KvEiqFZER+Vea+hN57N1THpu0KxjNOmFI2AsE+2gECvZKUhBQO/bqPwzHTrlDhbSc26hVZHDPgFRlrI/ltYQ=="],
 
-    "@vantail/runtime-win32-arm64": ["@vantail/runtime-win32-arm64@0.1.19", "", { "os": "win32", "cpu": "arm64" }, "sha512-kep8y0SoDz+xaGUjZSDnLbSAbEVtkqdgtJoP8tQWhj5B9d6XiA12HM3NsxMR5dIKeV6JYdP2wNHtopQBGsFA5g=="],
+    "@vantail/runtime-win32-arm64": ["@vantail/runtime-win32-arm64@0.1.21", "", { "os": "win32", "cpu": "arm64" }, "sha512-ouGBtPaE1Pi24Vubhl2Qt+9fds7AUxgG5Y3ea9pi5ZbiUHqAxRQcLnT/jf+jZ9GLDBx5seQKTBn0aBZrdQn/kw=="],
 
-    "@vantail/runtime-win32-arm64-sqlcipher": ["@vantail/runtime-win32-arm64-sqlcipher@0.1.19", "", { "os": "win32", "cpu": "arm64" }, "sha512-+Mp79uFal+0fBe3hHu4dWvJACdks4WnaMxzzeZS1UZHjZvp6J9p5GwqdnkHXXia+C5fHo7k14VSz+VdC3MBI0A=="],
+    "@vantail/runtime-win32-arm64-sqlcipher": ["@vantail/runtime-win32-arm64-sqlcipher@0.1.21", "", { "os": "win32", "cpu": "arm64" }, "sha512-u/ne1EUDZG2QEblguGKCxRT9JPwHBcHlBDQ6xGgeawKSSmNMFk0oRu7f2e3nyVez6Z/uUmfF48XSa5/bkrfdiA=="],
 
-    "@vantail/runtime-win32-x64": ["@vantail/runtime-win32-x64@0.1.19", "", { "os": "win32", "cpu": "x64" }, "sha512-BJuUbInku3FFj95J82g572mVjh3n5c1TmH518KajY1kVbhdkW7a36RFaDGSYzE5fGsKJ+8RaSIt+Z7hvwKjUEQ=="],
+    "@vantail/runtime-win32-x64": ["@vantail/runtime-win32-x64@0.1.21", "", { "os": "win32", "cpu": "x64" }, "sha512-XFhO32UBn2GlemNtcd3EbzpPzbhGrHLjj6F4AStfPxjtlmwzDXOPbR55+fgO7g3z+5ObUAVI8O5SzgcZenmuCw=="],
 
-    "@vantail/runtime-win32-x64-sqlcipher": ["@vantail/runtime-win32-x64-sqlcipher@0.1.19", "", { "os": "win32", "cpu": "x64" }, "sha512-bZa5qYCr/gYyfGwQtKwoOJ5jbiHXzQq6BNqoqGzw5F0eI8VcW7Pu9y5epwFM4gcqaZC6SUhSTBLKhQABEgfrSA=="],
+    "@vantail/runtime-win32-x64-sqlcipher": ["@vantail/runtime-win32-x64-sqlcipher@0.1.21", "", { "os": "win32", "cpu": "x64" }, "sha512-g1RdgUWOmLwrWBfKdPbimV14l10jQrbs4XoI/tRXxPq8Z7SdO9bTazfblX9haVGrKiJZNv717XeTIm1F964gTA=="],
 
-    "@vantail/shared": ["@vantail/shared@0.1.19", "", { "dependencies": { "esbuild": "^0.28.0", "zod": "^4.0.0" } }, "sha512-MV3NdTFc/xA8gWur2bV3xHvvq5IfAUEzc1qeHFLdUmA7Py6FsDB/6D0WxIuptTeN2t2pfRQRi+ahkeH6Rhfkqg=="],
+    "@vantail/shared": ["@vantail/shared@0.1.21", "", { "dependencies": { "esbuild": "^0.28.0", "zod": "^4.0.0" } }, "sha512-h0cAAihJ5RZGiSQQoKnpGtm7gZhFeZbzqnHiZSkGEuWDCzKW/m7ziiZ1UvIL4OyQH0a7+KuqO1eYEe+3O5UL7w=="],
 
-    "@vantail/vite": ["@vantail/vite@0.1.19", "", { "dependencies": { "@vantail/shared": "^0.1.19" }, "peerDependencies": { "vite": "^5.0.0 || ^6.0.0 || ^7.0.0 || ^8.0.0" } }, "sha512-OPWKdrSXSzclvrvrjCYPkuYoAIM9zkQl1gOcg3vcZWN2KcAAM4eZ/XISI1ntGIHTaImU3wak/LqnouEuF/Trcg=="],
+    "@vantail/vite": ["@vantail/vite@0.1.21", "", { "dependencies": { "@vantail/shared": "^0.1.21" }, "peerDependencies": { "vite": "^5.0.0 || ^6.0.0 || ^7.0.0 || ^8.0.0" } }, "sha512-eizyTpRIebLOWXesJ8TuZV75i2tf7zUZ6I7G5nQqcWL8c/yAQ4p4vErvF4PwwlbRGW84pXLT5a+RVnPbfgfmuA=="],
 
     "bun-types": ["bun-types@1.4.0", "", { "dependencies": { "@types/node": "*" } }, "sha512-iIKw23BspnQQYd3prITOBxeUsxBHnwzX6YJfGMuNOZzeNcMmVqzIIVGRm1l69ogaPQmb4wB6BN8mA5bE9YuC5Q=="],
 
@@ -263,7 +263,7 @@
 
     "lightningcss-win32-x64-msvc": ["lightningcss-win32-x64-msvc@1.33.0", "", { "os": "win32", "cpu": "x64" }, "sha512-OlEICDx/Xl0FqSp4bry8zFnCvGpig3Gl4gCquvYwHuqJKEC1+n9NgDniFvqHGmMv1ZkqDJrDqKKSykTDX+ehuA=="],
 
-    "lucide": ["lucide@1.38.0", "", {}, "sha512-ks+qlUDBIewXf4eBTSxQhjrKGrTz8SM0VIuHwgniY72HiBTnOe+UnyzSErIwckCUvjJ1TktDNu6+ZRC/9aoijw=="],
+    "lucide": ["lucide@1.39.0", "", {}, "sha512-5tdtUFVqkqXjQRlt8QyPeF9GjkMxiKDLWYg20vCmWYDgDY/Atnmx9foe9zF81NmbJNa+oheEfF8gN+CoCAljGg=="],
 
     "magic-string": ["magic-string@0.30.21", "", { "dependencies": { "@jridgewell/sourcemap-codec": "^1.5.5" } }, "sha512-vd2F4YUyEXKGcLHoq+TEyCjxueSeHnFxyyjNp80yg0XV4vUhnDer/lvvlqM/arB5bXQN5K2/3oinyCRyx8T2CQ=="],
 
