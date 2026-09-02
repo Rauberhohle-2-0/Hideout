@@ -16,7 +16,7 @@ import {
   PROVIDERS_ROUTE,
   TIP_ROUTE,
 } from "../shared/constants.ts";
-import { validateChatRequest, type Source } from "../shared/chat.ts";
+import { stripSourcesFromContent, validateChatRequest, type Source } from "../shared/chat.ts";
 import { greeting, tip } from "./views.ts";
 import { OllamaProvider } from "../providers/implementations/ollama.ts";
 import { OpenAIProvider } from "../providers/implementations/openai.ts";
@@ -294,7 +294,7 @@ export function buildSearchContext(items: SearchItem[], query: string): string {
       return `[${i + 1}] ${title} — ${it.url}${snippet}`;
     })
     .join("\n");
-  return `Current date: ${date}\nWeb search results for "${query}":\n${lines}\n\nInstructions: You MUST answer based on these web search results. They are current and authoritative. If they conflict with your prior knowledge, prefer the search results. Cite sources when possible.`;
+  return `Current date: ${date}\nWeb search results for "${query}":\n${lines}\n\nInstructions: You MUST answer based on these web search results. They are current and authoritative. If they conflict with your prior knowledge, prefer the search results. Write plain prose only. Do NOT include inline citations like [1], [2], and never add a "Sources", "Source", "References", or "Citations" section — not as a trailing list, not as bullet points, not as a summary. Do not describe or mention the sources themselves; the UI already shows them in a pill below your answer.`;
 }
 
 /** Inject grounding context as a system message so the LLM sees the search results. */
@@ -717,7 +717,7 @@ export function createApp(options: CreateAppOptions = {}) {
               ? provider.chatStream({ model, messages: groundedMessages, signal: c.req.raw.signal, toolsEnabled: chatToolsEnabled })
               : (async function* () {
                   const res = await provider.chat({ model, messages: groundedMessages, signal: c.req.raw.signal, toolsEnabled: chatToolsEnabled });
-                  if (res.content) yield { type: "content" as const, text: res.content };
+                  if (res.content) yield { type: "content" as const, text: stripSourcesFromContent(res.content) };
                 })();
             for await (const chunk of iterator) {
               if (c.req.raw.signal.aborted) break;
@@ -774,7 +774,7 @@ export function createApp(options: CreateAppOptions = {}) {
       }
       const result = await provider.chat({ model, messages: groundedMessages, signal: c.req.raw.signal, toolsEnabled: chatToolsEnabled });
       return c.json({
-        content: result.content,
+        content: stripSourcesFromContent(result.content),
         model: result.model,
         providerId: result.providerId,
         finishReason: result.finishReason ?? null,

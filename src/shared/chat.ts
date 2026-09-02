@@ -52,6 +52,73 @@ export type ChatResponse = {
 /** Parse error shape returned by the sidecar. */
 export type ChatError = { error: string };
 
+/**
+ * Strip LLM-generated source attributions that duplicate the UI's sources pill.
+ *
+ * The grounding prompt now tells the model NOT to emit inline citations, but
+ * older turns or wayward models may still append a footer like
+ * `Source: [1], [2], [3]` or `Sources: [1] [2]` (with optional markdown
+ * emphasis). Some models go further and emit a `Sources:` header followed by
+ * descriptive bullets that merely *contain* citations mid-line, e.g.
+ * `- Apple Leadership page: Lists John Ternus as CEO [1], [2].` The UI
+ * already shows sources in a dedicated pill below the answer, so any of
+ * these footers is redundant and looks broken.
+ *
+ * This is intentionally conservative: it only removes a *trailing* source
+ * block (1–2 paragraphs at the very end) and leaves legitimate bracket
+ * usage elsewhere in the body untouched. Inline `[1]` markers mid-sentence
+ * are kept — the updated prompt prevents new ones. The descriptive-bullet
+ * rule (6) additionally requires every bullet in the trailing block to
+ * carry a `[N]` citation or URL, so prose lists that merely end in a
+ * `Sources:`-style header survive.
+ *
+ * Exported for use in both the server (to sanitize provider output before
+ * persisting/streaming) and the renderer (defense-in-depth before display).
+ */
+export function stripSourcesFromContent(content: string): string {
+  if (!content) return content;
+  let s = content;
+  let prev = "";
+  // Iteratively strip trailing source blocks until stable — handles stacked
+  // variants (e.g. "Sources: [1]" followed by a bare "[2] [3]" line).
+  while (s !== prev) {
+    prev = s;
+    // 1) Header + citations on same line: "**Source:** [1], [2], ..." or "Sources: [1] [2]"
+    //    Optionally followed by continuation lines that are also citation lists.
+    s = s.replace(
+      /\n+[ \t]*[*_]*Sources?\s*:?[*_]*[ \t]*(?:\[[0-9]+\][ \t,;]*)+(?:\n[ \t]*(?:[-*]\s*)?\[[0-9]+\][^\n]*)*\s*$/i,
+      "",
+    );
+    // 2) Bare citation list at the very end without a header: "[1], [2], [3]" or "[1] [2]"
+    s = s.replace(/\n+[ \t]*(?:\[[0-9]+\][ \t,;]*)+\s*$/g, "");
+    // 3) Multiline "Sources:" header on its own line followed by bullet/numbered citation lines
+    s = s.replace(
+      /\n+[ \t]*[*_]*Sources?\s*:?[*_]*[ \t]*\n+([ \t]*[-*•]?\s*\[[0-9]+\][^\n]*\n?)+\s*$/i,
+      "",
+    );
+    // 4) Trailing paragraph that is just source URLs (e.g. "Sources: https://...")
+    s = s.replace(/\n+[ \t]*[*_]*Sources?\s*:?[*_]*[ \t]*https?:\/\/[^\n]+\s*$/i, "");
+    // 5) Inline variant where the header and citations are the entire content (no leading newline after trimming)
+    s = s.replace(/^[ \t]*[*_]*Sources?\s*:?[*_]*[ \t]*(?:\[[0-9]+\][ \t,;]*)+\s*$/i, "");
+    // 6) Header-only line ("Sources:", "**Sources**", "Source:", "References:",
+    //    "Citations:") followed by bullet/numbered lines where EVERY bullet
+    //    contains a [N] citation or a URL — the descriptive-bullet variant
+    //    ("- Apple Leadership page: Lists John Ternus as CEO [1], [2].").
+    //    Requires every bullet to cite so ordinary lists after such a header
+    //    are never eaten. Bullet sub-content (continuation lines) is allowed
+    //    as long as the bullet's first line cites.
+    s = s.replace(
+      /\n+[ \t]*[*_]*(?:Sources?|References?|Citations)[ \t]*:?[*_]*[ \t]*\n+(?:[ \t]*(?:[-*•]|\d+[.)])[ \t]+[^\n]*\n?)+$/i,
+      (block) => {
+        const bulletLines = block.split("\n").filter((l) => /^[ \t]*(?:[-*•]|\d+[.)])[ \t]+/.test(l));
+        const allCite = bulletLines.length > 0 && bulletLines.every((l) => /\[[0-9]+\]/.test(l) || /https?:\/\//.test(l));
+        return allCite ? "" : block;
+      },
+    );
+  }
+  return s.trimEnd();
+}
+
 /** Validate a ChatRequest payload. Returns an error string or null when valid. */
 export function validateChatRequest(body: unknown): string | null {
   if (!body || typeof body !== "object") return "Invalid body";
