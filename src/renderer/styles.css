@@ -219,125 +219,116 @@ body.sidebar-collapsed #model-selector {
 
 
 /*
- * Chat reasoning timeline — the model's thinking trace as a frameless
- * bullet list (built at runtime in src/renderer/main.ts). A dotted spine
- * runs down the left; every row hangs a small gray dot on it. Thinking
- * steps are plain muted text, the web-search tool use is a collapsible
- * row with a wrench, and a circled-check "Done" row closes the trace.
- * No box, no border — just like the screenshot.
+ * Chat reasoning — the model's thinking trace, exposed as a pill button
+ * ("Reasoning") that sits next to the Sources pill and expands into a panel
+ * in the same style (both reuse `.sources-pill` / `.sources-panel`, defined
+ * in the sources section below). Inside the panel a dotted spine runs down
+ * the left; every row hangs a small gray dot on it. Thinking steps are
+ * plain muted text, the web-search tool use is a collapsible row with a
+ * wrench, and a circled-check "Done" row closes the trace.
  */
-.reasoning-timeline {
+
+/* Icon and live step count inside the pill. The pill itself shares
+   `.sources-pill` styling with the Sources button. */
+.reasoning-pill-icon {
+  width: 0.875rem;
+  height: 0.875rem;
+  flex-shrink: 0;
+  color: color-mix(in oklab, var(--color-dim) 85%, var(--color-accent));
+}
+
+.reasoning-pill-count {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--color-dim);
+}
+
+/* iMessage/Messenger-style typing indicator: three small accent dots that
+   bounce in sequence with a soft glow. Only shown inside the Reasoning
+   pill while the model is thinking (`.reasoning-pill.is-thinking`). */
+.typing-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.1875rem;
+  flex-shrink: 0;
+}
+
+.typing-dot {
+  width: 0.3125rem;
+  height: 0.3125rem;
+  border-radius: 9999px;
+  background: var(--color-accent);
+  box-shadow: 0 0 6px color-mix(in oklab, var(--color-accent) 60%, transparent);
+  animation: typing-bounce 1.4s ease-in-out infinite;
+}
+
+.typing-dot:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.typing-dot:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+@keyframes typing-bounce {
+  0%,
+  60%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.45;
+  }
+  30% {
+    transform: translateY(-0.1875rem);
+    opacity: 1;
+  }
+}
+
+/* Thinking state: the pill reads as alive — accent-tinted, with a slow
+   breathing glow ring and the step count picking up the accent hue. */
+.reasoning-pill.is-thinking {
+  border-color: color-mix(in oklab, var(--color-accent) 50%, var(--color-line));
+  background: color-mix(in oklab, var(--color-card) 88%, var(--color-accent) 7%);
+  animation: thinking-glow 1.6s ease-in-out infinite;
+}
+
+.reasoning-pill.is-thinking .reasoning-pill-count {
+  color: color-mix(in oklab, var(--color-accent) 80%, var(--color-dim));
+}
+
+:root.dark .reasoning-pill.is-thinking {
+  background: color-mix(in oklab, var(--color-card) 90%, var(--color-accent) 10%);
+}
+
+@keyframes thinking-glow {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in oklab, var(--color-accent) 0%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 18px 1px color-mix(in oklab, var(--color-accent) 32%, transparent);
+  }
+}
+
+/* Expanded reasoning panel — the box styling comes from `.sources-panel`;
+   here we add the trace layout: the steps box, optional web-search tool
+   row and closing Done row stack with the same 0.4rem rhythm as before.
+   The explicit `[hidden]` guard beats the `display: flex` rule so
+   collapsing actually hides it. */
+.reasoning-panel {
   display: flex;
   flex-direction: column;
   gap: 0.4rem;
-  width: 100%;
-  /* Frameless when collapsed; a slim rounded border + soft backdrop appears
-     only once the user expands it (`.reasoning-open`), as in the screenshot. */
-  border: 1px solid transparent;
-  border-radius: 0.875rem;
-  padding: 0 0.75rem;
-  background: transparent;
-  transition:
-    border-color 0.18s ease,
-    background-color 0.18s ease,
-    padding 0.18s ease;
+  padding: 0.75rem;
 }
 
-/* Expanded trace: inset the rows a touch and outline the whole account. */
-.reasoning-timeline.reasoning-open {
-  border-color: color-mix(in oklab, var(--color-line) 90%, transparent);
-  background: color-mix(in oklab, var(--color-card) 45%, transparent);
-  padding: 0.5rem 0.75rem 0.7rem;
-}
-
-/* Collapsible body that holds the steps, tool rows and Done row. While
-   reasoning it starts closed (`hidden`), so the account wraps up into a
-   single header line the user can expand. The explicit `[hidden]` guard
-   beats the `display: flex` rule so collapsing actually hides it. */
-.reasoning-timeline-body {
-  display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
-}
-
-.reasoning-timeline-body[hidden] {
+.reasoning-panel[hidden] {
   display: none;
 }
 
-.reasoning-timeline-steps {
+.reasoning-steps {
   display: flex;
   flex-direction: column;
   gap: 0.4rem;
-}
-
-/* Keep the answer text on the same left rail as the reasoning steps so the
-   assistant message reads as one straight column. The reasoning step text
-   is inset from the message's left edge by: 1px border + box padding
-   (0.75rem) + marker dot (0.375rem) + row gap (0.75rem) = 1.9375rem.
-   Applied to the answer (and, when it follows reasoning, the source pill)
-   so it lines up exactly with the reasoning text. */
-.reasoning-answer {
-  padding-left: 1.9375rem;
-}
-
-/* Header: a quiet "Thinking"/"Reasoning" row that toggles the trace. */
-.reasoning-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-  width: fit-content;
-  /* Align the header word (and badge) with the reasoning step text and the
-     answer text below — the step content is inset by the marker dot
-     (0.375rem) + row gap (0.75rem) past the box padding. */
-  padding: 0 0 0 1.125rem;
-  border: 0;
-  background: transparent;
-  font-size: 0.875rem;
-  font-weight: 500;
-  color: var(--color-dim);
-  cursor: pointer;
-  user-select: none;
-  transition: color 0.14s ease;
-}
-
-.reasoning-toggle:hover {
-  color: var(--color-ink);
-}
-
-.reasoning-toggle:focus-visible {
-  outline: 2px solid color-mix(in oklab, var(--color-accent) 55%, transparent);
-  outline-offset: 2px;
-}
-
-.reasoning-toggle-chevron {
-  width: 1rem;
-  height: 1rem;
-  flex-shrink: 0;
-  color: color-mix(in oklab, var(--color-dim) 80%, transparent);
-  transition: transform 0.18s ease;
-}
-
-/* Trailing chevron: points right while collapsed (nothing to show yet) and
-   rotates 90deg to point down once expanded. */
-.reasoning-toggle[aria-expanded="true"] .reasoning-toggle-chevron {
-  transform: rotate(90deg);
-}
-
-.reasoning-toggle-title {
-  font-size: inherit;
-  font-weight: inherit;
-}
-
-/* A live count chip on the header, e.g. "3 steps", like the old badge. */
-.reasoning-toggle-badge {
-  margin-left: 0.25rem;
-  font-size: 0.6875rem;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  color: var(--color-accent);
-  background: color-mix(in oklab, var(--color-accent) 14%, transparent);
-  border-radius: 9999px;
-  padding: 0.125rem 0.5rem;
 }
 
 .reasoning-row {
@@ -358,7 +349,7 @@ body.sidebar-collapsed #model-selector {
 
 /* While the model is still thinking, the newest (growing) step's dot glows
    accent. Tool/Done rows are not steps, so target inside the steps box. */
-.reasoning-timeline.is-active .reasoning-timeline-steps .reasoning-row:last-child .reasoning-marker {
+.reasoning-panel.is-active .reasoning-steps .reasoning-row:last-child .reasoning-marker {
   background: var(--color-accent);
   animation: think-pulse 1.2s ease-in-out infinite;
 }

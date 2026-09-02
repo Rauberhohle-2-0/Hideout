@@ -870,8 +870,11 @@ function wireChat(): void {
     root: HTMLElement
     answerEl: HTMLElement
     pending: HTMLElement
-    timeline: HTMLElement | null
-    sourcesWrap: HTMLElement | null
+    controls: HTMLElement
+    pillRow: HTMLElement
+    reasoning: ReturnType<typeof buildReasoning> | null
+    sourcesPill: HTMLElement | null
+    sourcesPanel: HTMLElement | null
     sources: Source[]
     full: string
     thinking: string
@@ -960,11 +963,17 @@ function wireChat(): void {
       .map((step) => step.trim())
       .filter(Boolean)
 
-  // ── Reasoning timeline ──────────────────────────────────────────
-  // The trace renders as a frameless bullet timeline (no boxed panel):
-  // a dotted spine runs down the left, each row hangs a small gray dot
-  // on it. Steps are plain muted text; tool uses expand to their result
-  // rows; a final "Done" row with a circled check closes the trace.
+  // ── Reasoning pill & panel ─────────────────────────────────────
+  // The model's thinking trace lives behind a "Reasoning" pill button that
+  // sits next to the Sources pill (see `buildReasoning` and
+  // `createSourcesPill`). Expanded, it shows the trace: a dotted spine
+  // down the left, each row hung on a small gray dot. Steps are plain
+  // muted text; tool uses expand to their result rows; a final "Done" row
+  // with a circled check closes the trace.
+
+  // Sparkles icon for the Reasoning pill (lucide "sparkles").
+  const REASONING_ICON_PATH =
+    'M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0zM20 3v4M22 5h-4M4 17v2M5 18H3'
 
   const REASONING_TOOL_LABELS: Record<string, string> = {
     web_search: 'Used Web Search',
@@ -988,6 +997,20 @@ function wireChat(): void {
     path.setAttribute('d', pathD)
     svg.appendChild(path)
     return svg
+  }
+
+  /** iMessage/Messenger-style typing indicator: three dots that bounce in
+      sequence (staggered by CSS) while the model is thinking. */
+  const makeTypingDots = (): HTMLElement => {
+    const wrap = document.createElement('span')
+    wrap.className = 'typing-indicator'
+    wrap.setAttribute('aria-hidden', 'true')
+    for (let i = 0; i < 3; i++) {
+      const dot = document.createElement('span')
+      dot.className = 'typing-dot'
+      wrap.appendChild(dot)
+    }
+    return wrap
   }
 
   /** The timeline column marker: a small gray dot on the shared spine. */
@@ -1114,12 +1137,10 @@ function wireChat(): void {
     return sourceDomain(src.url)
   }
 
-  /** Build the clickable pill + collapsible list for a set of sources. */
-  const createSourcesBlock = (sources: Source[]): HTMLElement => {
-    const wrap = document.createElement('div')
-    wrap.className = 'flex w-full flex-col gap-2'
-    wrap.dataset.sourcesBlock = 'true'
-
+  /** Build the clickable pill + collapsible panel for a set of sources.
+      Returns the pair so callers place them (the pill in the shared pill
+      row, the panel in the controls column below it). */
+  const createSourcesPill = (sources: Source[]): { pill: HTMLButtonElement; panel: HTMLElement } => {
     const pill = document.createElement('button')
     pill.type = 'button'
     pill.className = 'sources-pill'
@@ -1252,22 +1273,43 @@ function wireChat(): void {
       panel.hidden = !next
     })
 
-    wrap.append(pill, panel)
-    return wrap
+    return { pill, panel }
   }
 
   /**
-   * Build the full timeline DOM for a finished turn: thinking steps, the
-   * web-search tool row (if sources exist), and the closing Done row.
-   * Shared by the live stream and the persisted re-render so both stay
-   * pixel-identical.
+   * Build the full reasoning DOM for a finished turn: the pill button
+   * ("Reasoning" / "Thinking" with a live step count) and the collapsible
+   * panel holding the thinking steps, the web-search tool row (if sources
+   * exist) and the closing Done row. Shared by the live stream and the
+   * persisted re-render so both stay pixel-identical. The pill reuses the
+   * Sources pill styling (`.sources-pill`); the panel reuses the sources
+   * panel box (`.sources-panel`), matching the references.
    */
-  const buildTimeline = (opts: { thinking: string; sources: Source[]; query: string; active: boolean }): {
-    timeline: HTMLElement
-    header: HTMLElement
-    title: HTMLElement
-    badge: HTMLElement
-    body: HTMLElement
+  // Per-chat isolation for the reasoning panel's open/closed state.
+  // Each assistant message's trace gets its own storage key
+  // `hideout.reasoning.<sessionId>.<msgIdx>` so toggling in one chat
+  // (or one message) never affects another chat. Live (streaming) traces
+  // use `hideout.reasoning.live.<sessionId>` and start collapsed.
+  const reasoningStorageKey = (sessionId: string, msgIdx: number | 'live'): string => `hideout.reasoning.${sessionId}.${msgIdx}`
+  const getStoredReasoningExpanded = (key: string, fallback: boolean): boolean => {
+    try {
+      const v = localStorage.getItem(key)
+      if (v === '1') return true
+      if (v === '0') return false
+    } catch {}
+    return fallback
+  }
+  const setStoredReasoningExpanded = (key: string, expanded: boolean): void => {
+    try {
+      localStorage.setItem(key, expanded ? '1' : '0')
+    } catch {}
+  }
+
+  const buildReasoning = (opts: { thinking: string; sources: Source[]; query: string; active: boolean; storageKey?: string }): {
+    pill: HTMLButtonElement
+    label: HTMLElement
+    count: HTMLElement
+    panel: HTMLElement
     /** Where new step rows are appended while the model streams. */
     stepsBox: HTMLElement
     /** The tool row, present only when sources exist. */
@@ -1275,48 +1317,52 @@ function wireChat(): void {
     /** The Done row, absent while `active` (still reasoning). */
     doneRow: HTMLElement | null
   } => {
-    const timeline = document.createElement('div')
-    timeline.className = 'reasoning-timeline'
+    const fallbackExpanded = !opts.active
+    const initialExpanded = opts.storageKey ? getStoredReasoningExpanded(opts.storageKey, fallbackExpanded) : fallbackExpanded
+    const pill = document.createElement('button')
+    pill.type = 'button'
+    pill.className = 'sources-pill reasoning-pill'
+    pill.setAttribute('aria-expanded', String(initialExpanded))
+    pill.setAttribute('aria-label', opts.active ? 'Thinking' : 'Reasoning')
+    if (opts.active) {
+      // Thinking state: the icon is replaced by an iMessage/Messenger-style
+      // typing indicator and the label shimmers — see the CSS below.
+      pill.classList.add('is-thinking')
+      pill.appendChild(makeTypingDots())
+    } else {
+      pill.appendChild(makeSvg(REASONING_ICON_PATH, 'reasoning-pill-icon'))
+    }
+    const label = document.createElement('span')
+    label.className = 'reasoning-pill-label'
+    label.textContent = opts.active ? 'Thinking' : 'Reasoning'
+    if (opts.active) label.classList.add('shimmer-text')
+    pill.appendChild(label)
+    const count = document.createElement('span')
+    count.className = 'reasoning-pill-count'
+    count.hidden = true
+    pill.appendChild(count)
+    // Trailing chevron in the same spot as the sources pill: points right
+    // while collapsed and rotates 90deg to point down once expanded.
+    pill.appendChild(makeSvg('m9 18 6-6-6-6', 'sources-chevron'))
 
-    // Collapsible header. Reasoning *begins* collapsed so the trace doesn't
-    // flood the thread; the user can expand it. Finished turns (persisted)
-    // load expanded so a reopened trace reads fully. An `.reasoning-open`
-    // class mirrors the expanded state so the CSS can draw a subtle border
-    // around the trace only when it's enlarged (as in the screenshot).
-    const header = document.createElement('button')
-    header.type = 'button'
-    header.className = 'reasoning-toggle'
-    header.setAttribute('aria-expanded', String(!opts.active))
-    header.setAttribute('aria-label', 'Reasoning')
-    const title = document.createElement('span')
-    title.className = 'reasoning-toggle-title'
-    title.textContent = opts.active ? 'Thinking' : 'Reasoning'
-    header.appendChild(title)
-    // Chevron sits *after* the word so the collapse affordance reads on the
-    // right (it points right when collapsed, down when expanded), per the
-    // screenshot — not leading the label.
-    header.appendChild(makeSvg('m9 18 6-6-6-6', 'reasoning-toggle-chevron'))
-    const badge = document.createElement('span')
-    badge.className = 'reasoning-toggle-badge'
-    badge.hidden = true
-    header.appendChild(badge)
+    const panel = document.createElement('div')
+    panel.className = 'sources-panel reasoning-panel'
+    // Starts collapsed while reasoning is in progress; finished turns load
+    // expanded so a reopened trace reads fully — unless the user previously
+    // collapsed it for this exact message (stored per chat).
+    panel.hidden = !initialExpanded
+    if (opts.active) panel.classList.add('is-active')
 
-    const body = document.createElement('div')
-    body.className = 'reasoning-timeline-body'
-    body.hidden = opts.active // start collapsed while reasoning is in progress
-    const initiallyOpen = !opts.active
-    if (initiallyOpen) timeline.classList.add('reasoning-open')
-
-    header.addEventListener('click', () => {
-      const open = header.getAttribute('aria-expanded') !== 'true'
-      header.setAttribute('aria-expanded', String(open))
-      body.hidden = !open
-      timeline.classList.toggle('reasoning-open', open)
+    pill.addEventListener('click', () => {
+      const open = pill.getAttribute('aria-expanded') !== 'true'
+      pill.setAttribute('aria-expanded', String(open))
+      panel.hidden = !open
+      if (opts.storageKey) setStoredReasoningExpanded(opts.storageKey, open)
     })
 
     const stepsBox = document.createElement('div')
-    stepsBox.className = 'reasoning-timeline-steps'
-    body.appendChild(stepsBox)
+    stepsBox.className = 'reasoning-steps'
+    panel.appendChild(stepsBox)
 
     let toolRow: HTMLElement | null = null
     if (opts.sources.length > 0) {
@@ -1326,45 +1372,53 @@ function wireChat(): void {
         makeToolEntry(`Search: ${opts.query || '…'}`),
         ...opts.sources.map((s) => makeToolEntry(sourceTitle(s), s.url)),
       )
-      body.appendChild(toolRow)
+      panel.appendChild(toolRow)
     }
 
     let doneRow: HTMLElement | null = null
     if (!opts.active) {
       doneRow = makeDoneRow()
-      body.appendChild(doneRow)
+      panel.appendChild(doneRow)
     }
 
     const steps = splitReasoningSteps(opts.thinking)
     stepsBox.replaceChildren(...steps.map(makeStepRow))
     if (steps.length > 0) {
-      badge.hidden = false
-      badge.textContent = steps.length === 1 ? '1 step' : `${steps.length} steps`
+      count.hidden = false
+      count.textContent = steps.length === 1 ? '1 step' : `${steps.length} steps`
     }
 
-    timeline.append(header, body)
-    return { timeline, header, title, badge, body, stepsBox, toolRow, doneRow }
+    return { pill, label, count, panel, stepsBox, toolRow, doneRow }
   }
 
-  const renderPersistedReasoning = (content: string, thinking: string, sources?: Source[], query?: string): HTMLElement => {
+  const renderPersistedReasoning = (content: string, thinking: string, sources?: Source[], query?: string, storageKey?: string): HTMLElement => {
     const root = document.createElement('div')
     root.className = 'flex w-full flex-col gap-4'
-    const hasReasoning = Boolean(thinking.trim())
-    if (hasReasoning) {
-      root.appendChild(buildTimeline({ thinking, sources: sources ?? [], query: query ?? '', active: false }).timeline)
-    }
     const answer = document.createElement('div')
     answer.className = 'w-full whitespace-pre-wrap break-words text-sm leading-relaxed text-ink'
     answer.textContent = content
-    // When a reasoning timeline sits above, indent the answer to line up
-    // with its text — one straight column for the whole assistant message.
-    if (hasReasoning) answer.classList.add('reasoning-answer')
     root.appendChild(answer)
-    // Sources sit below the answer text
-    if (sources && sources.length > 0) {
-      const block = createSourcesBlock(sources)
-      if (hasReasoning) block.classList.add('reasoning-answer')
-      root.appendChild(block)
+    // The Reasoning + Sources pills sit below the answer in one shared row,
+    // each expanding into its own panel — same pill/panel language.
+    const hasReasoning = Boolean(thinking.trim())
+    const hasSources = sources !== undefined && sources.length > 0
+    if (hasReasoning || hasSources) {
+      const controls = document.createElement('div')
+      controls.className = 'flex w-full flex-col gap-2'
+      const pillRow = document.createElement('div')
+      pillRow.className = 'flex flex-wrap items-center gap-2'
+      controls.appendChild(pillRow)
+      if (hasReasoning) {
+        const r = buildReasoning({ thinking, sources: sources ?? [], query: query ?? '', active: false, ...(storageKey ? { storageKey } : {}) })
+        pillRow.appendChild(r.pill)
+        controls.appendChild(r.panel)
+      }
+      if (hasSources) {
+        const s = createSourcesPill(sources as Source[])
+        pillRow.appendChild(s.pill)
+        controls.appendChild(s.panel)
+      }
+      root.appendChild(controls)
     }
     return root
   }
@@ -1426,9 +1480,18 @@ function wireChat(): void {
     field.focus()
 
     const { root: assistantWrap, answerEl } = appendAssistantArea()
+    // Shared row for the Reasoning + Sources pills, with their expandable
+    // panels stacking beneath. Created up front so streaming steps and
+    // late-arriving sources both land in the same controls column.
+    const controls = document.createElement('div')
+    controls.className = 'flex w-full flex-col gap-2'
+    const pillRow = document.createElement('div')
+    pillRow.className = 'flex flex-wrap items-center gap-2'
+    controls.appendChild(pillRow)
+    assistantWrap.appendChild(controls)
     let full = ''
     let thinking = ''
-    let timeline: ReturnType<typeof buildTimeline> | null = null
+    let reasoning: ReturnType<typeof buildReasoning> | null = null
     let toolBody: HTMLElement | null = null
     let contentStarted = false
     let anyDelta = false
@@ -1443,14 +1506,18 @@ function wireChat(): void {
       '<span class="think-dots"><span class="think-dot"></span><span class="think-dot"></span><span class="think-dot"></span></span></span>'
     assistantWrap.appendChild(pending)
     let sources: Source[] = []
-    let sourcesWrap: HTMLElement | null = null
+    let sourcesPill: HTMLElement | null = null
+    let sourcesPanel: HTMLElement | null = null
     // Track live DOM so switching back to this session while it streams re-attaches it.
     liveChats.set(sessionId, {
       root: assistantWrap,
       answerEl,
       pending,
-      timeline: null,
-      sourcesWrap,
+      controls,
+      pillRow,
+      reasoning: null,
+      sourcesPill,
+      sourcesPanel,
       sources,
       full: '',
       thinking: '',
@@ -1462,68 +1529,72 @@ function wireChat(): void {
     // cleared when the user switches to a new chat.
     const requestMessages = history.snapshot()
 
-    // Reasoning trace → timeline rows. Paragraphs (blank-line separated)
+    // Reasoning trace → panel rows. Paragraphs (blank-line separated)
     // become steps; the last one grows live while the model thinks.
     const splitSteps = splitReasoningSteps
 
-    // The frameless reasoning timeline is created lazily on the first
-    // thinking delta, collapsed by default. Steps appear as they stream;
-    // the web-search tool row and Done row are appended as they happen.
-    const ensureTimeline = () => {
-      if (timeline) return timeline
-      const t = buildTimeline({ thinking: '', sources: [], query: '', active: true })
-      t.timeline.classList.add('is-active')
-      timeline = t
-      assistantWrap.insertBefore(t.timeline, answerEl)
-      // Align the answer under the reasoning steps once the trace exists.
-      answerEl.classList.add('reasoning-answer')
+    // The Reasoning pill + panel are created lazily on the first thinking
+    // delta, collapsed by default and labelled "Thinking" with a live step
+    // count. Steps appear as they stream; the web-search tool row and the
+    // Done row are appended to the panel as they happen.
+    const ensureReasoning = () => {
+      if (reasoning) return reasoning
+      const key = reasoningStorageKey(sessionId, 'live')
+      const r = buildReasoning({ thinking: '', sources: [], query: '', active: true, storageKey: key })
+      reasoning = r
+      pillRow.appendChild(r.pill)
+      controls.appendChild(r.panel)
       const live = liveChats.get(sessionId)
-      if (live) live.timeline = t.timeline
-      return t
+      if (live) live.reasoning = r
+      return r
     }
 
     // Sources arrived mid-stream → append the "Used Web Search" row with
     // the query and source links in its expandable body.
     const ensureToolRow = (srcs: Source[]) => {
       if (toolBody) return
-      const t = ensureTimeline()
+      const r = ensureReasoning()
       const tool = makeToolRow('web_search')
       tool.body.replaceChildren(
         makeToolEntry(`Search: ${raw || '…'}`),
         ...srcs.map((s) => makeToolEntry(sourceTitle(s), s.url)),
       )
       // Tool rows go after the growing steps box (inside the collapsible
-      // body); the Done row is appended later at finishReasoning, so it
+      // panel); the Done row is appended later at finishReasoning, so it
       // stays last.
-      t.body.appendChild(tool.row)
+      r.panel.appendChild(tool.row)
       toolBody = tool.body
       const live = liveChats.get(sessionId)
-      if (live) live.timeline = t.timeline
+      if (live) live.reasoning = r
     }
 
-    const ensureSourcesBlock = (srcs: Source[]): HTMLElement => {
-      // Replace existing block if sources grew (e.g. second tool call)
-      if (sourcesWrap) sourcesWrap.remove()
-      const block = createSourcesBlock(srcs)
-      // Sources sit below the answer text
-      answerEl.insertAdjacentElement('afterend', block)
-      sourcesWrap = block
+    const ensureSourcesBlock = (srcs: Source[]): void => {
+      // Replace existing pill + panel if sources grew (e.g. second tool call)
+      if (sourcesPill) {
+        sourcesPill.remove()
+        sourcesPanel?.remove()
+      }
+      const s = createSourcesPill(srcs)
+      pillRow.appendChild(s.pill)
+      controls.appendChild(s.panel)
+      sourcesPill = s.pill
+      sourcesPanel = s.panel
       const live = liveChats.get(sessionId)
       if (live) {
-        live.sourcesWrap = block
+        live.sourcesPill = s.pill
+        live.sourcesPanel = s.panel
         live.sources = srcs
       }
-      return block
     }
 
     // Append/update the streaming step rows in place (no full rebuild per
     // delta — the growing last row just gets its text updated).
     const renderSteps = () => {
-      if (!timeline) ensureTimeline()
-      const t = timeline
-      if (!t) return
+      if (!reasoning) ensureReasoning()
+      const r = reasoning
+      if (!r) return
       const steps = splitSteps(thinking)
-      const box = t.stepsBox
+      const box = r.stepsBox
       // Top up rows instead of rebuilding so the DOM stays stable while the
       // last row grows live.
       while (box.children.length > steps.length) box.lastElementChild?.remove()
@@ -1532,20 +1603,25 @@ function wireChat(): void {
         const p = box.children[i]?.querySelector<HTMLElement>('.reasoning-step')
         if (p) p.textContent = step
       })
-      // Keep the header count in sync with the live step count.
-      t.badge.hidden = steps.length === 0
-      if (steps.length > 0) t.badge.textContent = steps.length === 1 ? '1 step' : `${steps.length} steps`
+      // Keep the pill's count in sync with the live step count.
+      r.count.hidden = steps.length === 0
+      if (steps.length > 0) r.count.textContent = steps.length === 1 ? '1 step' : `${steps.length} steps`
     }
 
-    // Thinking finished: retitle the header to "Reasoning" and stamp the
-    // Done row on the timeline. Tool rows already sit between the steps and
-    // Done, in call order.
+    // Thinking finished: the pill settles back to its resting look — static
+    // icon, plain "Reasoning" label — and the Done row stamps the panel.
+    // Tool rows already sit between the steps and Done, in call order.
     const finishReasoning = () => {
-      if (!timeline || timeline.doneRow) return
-      timeline.timeline.classList.remove('is-active')
-      timeline.title.textContent = 'Reasoning'
-      timeline.doneRow = makeDoneRow()
-      timeline.body.appendChild(timeline.doneRow)
+      if (!reasoning || reasoning.doneRow) return
+      const r = reasoning
+      r.panel.classList.remove('is-active')
+      r.pill.classList.remove('is-thinking')
+      r.label.classList.remove('shimmer-text')
+      r.label.textContent = 'Reasoning'
+      const typing = r.pill.querySelector('.typing-indicator')
+      if (typing) typing.replaceWith(makeSvg(REASONING_ICON_PATH, 'reasoning-pill-icon'))
+      r.doneRow = makeDoneRow()
+      r.panel.appendChild(r.doneRow)
     }
 
     const persistAssistant = (content: string, opts: { isAbort?: boolean } = {}): void => {
@@ -1582,19 +1658,16 @@ function wireChat(): void {
       }
     }
 
-    // Reveal the buffered sources pill once the answer is done (or aborted
-    // with partial content). For background sessions the block is built
-    // off-DOM and re-attached when the session becomes active again.
+    // Reveal the buffered Sources pill once the answer is done (or aborted
+    // with partial content). For background sessions the pill is detached
+    // again and re-created from the live record when the session becomes
+    // active (see the session-selected handler).
     const revealSources = (): void => {
       if (sources.length === 0) return
-      if (isActiveSession(sessionId)) {
-        ensureSourcesBlock(sources)
-      } else {
-        ensureSourcesBlock(sources)
-        // Detach again until session becomes active
-        if (sourcesWrap) sourcesWrap.remove()
-        const liveNow = liveChats.get(sessionId)
-        if (liveNow) liveNow.sourcesWrap = sourcesWrap
+      ensureSourcesBlock(sources)
+      if (!isActiveSession(sessionId)) {
+        sourcesPill?.remove()
+        sourcesPanel?.remove()
       }
     }
 
@@ -1753,6 +1826,7 @@ function wireChat(): void {
       // Render historic messages first (includes the user message), then
       // the live assistant area that is still streaming.
       let lastUserContent = ''
+      let assistantIdx = 0
       for (const m of history.all) {
         if (m.role === 'user') {
           lastUserContent = m.content
@@ -1766,19 +1840,21 @@ function wireChat(): void {
         } else if (m.role === 'assistant') {
           // Already persisted assistant turns; live root holds the *current* pending turn
           // Include persisted sources so history shows the pill even before live attaches
-          column.appendChild(renderPersistedReasoning(m.content, m.thinking ?? '', m.sources, lastUserContent))
+          const key = reasoningStorageKey(id, assistantIdx++)
+          column.appendChild(renderPersistedReasoning(m.content, m.thinking ?? '', m.sources, lastUserContent, key))
         }
       }
       column.appendChild(live.root)
       // Sync answer text if it grew while detached
       live.answerEl.textContent = live.full
-      // Ensure sources pill is visible if it arrived while detached
-      if (live.sources.length > 0 && !live.sourcesWrap) {
-        // Re-create pill now that we're back on this session
-        const block = createSourcesBlock(live.sources)
-        // Sources sit below the answer text
-        live.answerEl.insertAdjacentElement('afterend', block)
-        live.sourcesWrap = block
+      // Ensure the Sources pill is visible if it arrived while detached
+      if (live.sources.length > 0 && (!live.sourcesPill || !live.sourcesPill.isConnected)) {
+        // Re-create pill + panel now that we're back on this session
+        const s = createSourcesPill(live.sources)
+        live.pillRow.appendChild(s.pill)
+        live.controls.appendChild(s.panel)
+        live.sourcesPill = s.pill
+        live.sourcesPanel = s.panel
       }
       // Ensure pending visibility reflects live state
       if (live.anyDelta && live.pending.parentElement) live.pending.remove()
@@ -1788,6 +1864,7 @@ function wireChat(): void {
     }
     // Normal (non-live) render
     let lastUserContent = ''
+    let assistantIdx2 = 0
     for (const m of history.all) {
       if (m.role === 'user') {
         lastUserContent = m.content
@@ -1799,7 +1876,8 @@ function wireChat(): void {
         wrap.appendChild(bubble)
         column.appendChild(wrap)
       } else if (m.role === 'assistant') {
-        column.appendChild(renderPersistedReasoning(m.content, m.thinking ?? '', m.sources, lastUserContent))
+        const key = reasoningStorageKey(id, assistantIdx2++)
+        column.appendChild(renderPersistedReasoning(m.content, m.thinking ?? '', m.sources, lastUserContent, key))
       }
     }
     thread.scrollTop = thread.scrollHeight
