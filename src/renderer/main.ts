@@ -8,6 +8,8 @@ import { appWindow, titleBarMetrics } from '@vantail/api'
 import { ChevronDown, createIcons, MessageCircle, Mic, Moon, PanelLeft, Pencil, Pin, PinOff, Plus, Search, SendHorizontal, Settings, Square, SquarePen, Sun, Trash2, Wrench, X } from 'lucide'
 import { ChatHistory, chatStream, getSelectedModel, setSelectedModel, type SelectedModel, type Source } from './chat.ts'
 import { sessionStore, type ChatSession } from './sessions.ts'
+import { renderMarkdown } from '../shared/markdown-full.ts'
+import { stripSourcesFromContent } from '../shared/chat.ts'
 
 // Hydrate the Lucide icons declared as `<i data-lucide="…">` in index.html.
 // The runtime swaps each placeholder for its SVG, keeping the element's own
@@ -950,7 +952,7 @@ function wireChat(): void {
     const root = document.createElement('div')
     root.className = 'flex w-full flex-col gap-4'
     const answerEl = document.createElement('div')
-    answerEl.className = 'w-full whitespace-pre-wrap break-words text-sm leading-relaxed text-ink'
+    answerEl.className = 'markdown-content w-full break-words text-sm leading-relaxed text-ink'
     root.appendChild(answerEl)
     column.appendChild(root)
     scrollToBottom()
@@ -1395,8 +1397,8 @@ function wireChat(): void {
     const root = document.createElement('div')
     root.className = 'flex w-full flex-col gap-4'
     const answer = document.createElement('div')
-    answer.className = 'w-full whitespace-pre-wrap break-words text-sm leading-relaxed text-ink'
-    answer.textContent = content
+    answer.className = 'markdown-content w-full break-words text-sm leading-relaxed text-ink'
+    answer.innerHTML = renderMarkdown(stripSourcesFromContent(content))
     root.appendChild(answer)
     // The Reasoning + Sources pills sit below the answer in one shared row,
     // each expanding into its own panel — same pill/panel language.
@@ -1625,7 +1627,7 @@ function wireChat(): void {
     }
 
     const persistAssistant = (content: string, opts: { isAbort?: boolean } = {}): void => {
-      const text = content || (opts.isAbort ? '' : '(empty reply)')
+      const text = stripSourcesFromContent(content) || (opts.isAbort ? '' : '(empty reply)')
       const reasoning = thinking.trim()
       const srcs = sources.length > 0 ? sources.map((s) => ({ ...s })) : undefined
       // Only mutate shared `history` if this session is still active; otherwise
@@ -1714,12 +1716,13 @@ function wireChat(): void {
           }
           full += chunk.text
           if (live) live.full = full
-          answerEl.textContent = full
+          answerEl.innerHTML = renderMarkdown(stripSourcesFromContent(full))
         }
         if (isActiveSession(sessionId)) scrollToBottom()
       }
       if (isActiveSession(sessionId)) {
-        if (!full) answerEl.textContent = '(empty reply)'
+        if (!full) answerEl.innerHTML = renderMarkdown('(empty reply)')
+        else answerEl.innerHTML = renderMarkdown(stripSourcesFromContent(full))
       }
       // Answer finished — now reveal the sources pill (if any were buffered).
       revealSources()
@@ -1730,7 +1733,7 @@ function wireChat(): void {
         // Timeline may not exist if we never got a thinking delta; any tool
         // row still reads fine — just close the trace with Done.
         finishReasoning()
-        answerEl.textContent = full ? full + ' — aborted' : 'Aborted.'
+        answerEl.innerHTML = full ? renderMarkdown(stripSourcesFromContent(full) + ' — aborted') : 'Aborted.'
         if (full) {
           revealSources()
           persistAssistant(full + ' — aborted', { isAbort: true })
@@ -1746,7 +1749,7 @@ function wireChat(): void {
           liveChats.delete(sessionId)
           if (isActiveSession(sessionId)) showError(msg || 'Failed to get reply.')
         } else {
-          answerEl.textContent = full
+          answerEl.innerHTML = renderMarkdown(stripSourcesFromContent(full))
           revealSources()
           if (isActiveSession(sessionId)) showError(msg)
         }
@@ -1846,7 +1849,7 @@ function wireChat(): void {
       }
       column.appendChild(live.root)
       // Sync answer text if it grew while detached
-      live.answerEl.textContent = live.full
+      live.answerEl.innerHTML = renderMarkdown(stripSourcesFromContent(live.full))
       // Ensure the Sources pill is visible if it arrived while detached
       if (live.sources.length > 0 && (!live.sourcesPill || !live.sourcesPill.isConnected)) {
         // Re-create pill + panel now that we're back on this session
