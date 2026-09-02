@@ -1136,9 +1136,6 @@ function wireChat(): void {
   const renderPersistedReasoning = (content: string, thinking: string, sources?: Source[]): HTMLElement => {
     const root = document.createElement('div')
     root.className = 'flex w-full flex-col gap-4'
-    if (sources && sources.length > 0) {
-      root.appendChild(createSourcesBlock(sources))
-    }
     if (thinking) {
       const details = document.createElement('details')
       details.className = 'reasoning-panel'
@@ -1181,6 +1178,10 @@ function wireChat(): void {
     answer.className = 'w-full whitespace-pre-wrap break-words text-sm leading-relaxed text-ink'
     answer.textContent = content
     root.appendChild(answer)
+    // Sources sit below the answer text
+    if (sources && sources.length > 0) {
+      root.appendChild(createSourcesBlock(sources))
+    }
     return root
   }
 
@@ -1340,12 +1341,8 @@ function wireChat(): void {
       // Replace existing block if sources grew (e.g. second tool call)
       if (sourcesWrap) sourcesWrap.remove()
       const block = createSourcesBlock(srcs)
-      // Insert after reasoning panel if present, otherwise at top before answer
-      if (details && details.parentElement === assistantWrap) {
-        details.insertAdjacentElement('afterend', block)
-      } else {
-        assistantWrap.insertBefore(block, answerEl)
-      }
+      // Sources sit below the answer text
+      answerEl.insertAdjacentElement('afterend', block)
       sourcesWrap = block
       const live = liveChats.get(sessionId)
       if (live) {
@@ -1606,9 +1603,8 @@ function wireChat(): void {
       if (live.sources.length > 0 && !live.sourcesWrap) {
         // Re-create pill now that we're back on this session
         const block = createSourcesBlock(live.sources)
-        const target = live.details ? live.details.nextSibling : live.answerEl
-        if (target) live.root.insertBefore(block, target as Node)
-        else live.root.insertBefore(block, live.answerEl)
+        // Sources sit below the answer text
+        live.answerEl.insertAdjacentElement('afterend', block)
         live.sourcesWrap = block
       }
       // Ensure pending visibility reflects live state

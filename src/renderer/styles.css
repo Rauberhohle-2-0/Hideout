@@ -221,31 +221,25 @@ body.sidebar-collapsed #model-selector {
 /*
  * Chat reasoning panel — the collapsible <details> around the model's
  * thinking trace. Built at runtime in src/renderer/main.ts, styled here.
- * `.reasoning-active` is set while the model is still reasoning: the border
- * picks up the accent colour and the whole panel pulses a glow so the
- * "thinking" phase is unmistakable.
+ * Collapsed it is fully frameless: while reasoning only the shimmering
+ * label and the bouncing dots animate — no border, no glow. Expanding the
+ * panel reveals a subtle container around the steps.
  */
 .reasoning-panel {
-  border: 1px solid color-mix(in oklab, var(--color-line) 80%, transparent);
+  /* Border is always rendered so opening the panel only animates the
+     colours — otherwise the border pops in/out and flickers. */
+  border: 1px solid transparent;
   border-radius: 0.75rem;
-  background: color-mix(in oklab, var(--color-card) 55%, transparent);
+  background: transparent;
   overflow: hidden;
-  transition: border-color 0.2s ease;
+  transition:
+    border-color 0.2s ease,
+    background-color 0.2s ease;
 }
 
-.reasoning-panel.reasoning-active {
-  border-color: color-mix(in oklab, var(--color-accent) 55%, transparent);
-  animation: reasoning-glow 1.4s ease-in-out infinite;
-}
-
-@keyframes reasoning-glow {
-  0%,
-  100% {
-    box-shadow: 0 0 0 0 color-mix(in oklab, var(--color-accent) 0%, transparent);
-  }
-  50% {
-    box-shadow: 0 0 22px 2px color-mix(in oklab, var(--color-accent) 45%, transparent);
-  }
+.reasoning-panel[open] {
+  border-color: color-mix(in oklab, var(--color-line) 80%, transparent);
+  background: color-mix(in oklab, var(--color-card) 55%, transparent);
 }
 
 .reasoning-panel summary {
@@ -253,12 +247,17 @@ body.sidebar-collapsed #model-selector {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  padding: 0.5rem 0.75rem;
+  padding: 0.5rem 0;
   cursor: pointer;
   user-select: none;
   font-size: 0.8125rem;
   font-weight: 600;
   color: var(--color-dim);
+}
+
+/* While the box is visible, inset the header to match the steps padding. */
+.reasoning-panel[open] summary {
+  padding: 0.5rem 0.75rem 0;
 }
 
 .reasoning-panel summary::-webkit-details-marker {
@@ -608,6 +607,7 @@ body.sidebar-collapsed #model-selector {
 .sources-pill {
   display: inline-flex;
   align-items: center;
+  align-self: flex-start;
   gap: 0.5rem;
   padding: 0.3rem 0.65rem 0.3rem 0.4rem;
   border-radius: 9999px;
