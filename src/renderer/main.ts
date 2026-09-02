@@ -1429,6 +1429,22 @@ function wireChat(): void {
       }
     }
 
+    // Reveal the buffered sources pill once the answer is done (or aborted
+    // with partial content). For background sessions the block is built
+    // off-DOM and re-attached when the session becomes active again.
+    const revealSources = (): void => {
+      if (sources.length === 0) return
+      if (isActiveSession(sessionId)) {
+        ensureSourcesBlock(sources)
+      } else {
+        ensureSourcesBlock(sources)
+        // Detach again until session becomes active
+        if (sourcesWrap) sourcesWrap.remove()
+        const liveNow = liveChats.get(sessionId)
+        if (liveNow) liveNow.sourcesWrap = sourcesWrap
+      }
+    }
+
     try {
       const toolsEnabled = sessionStore.isToolsEnabled(sessionId)
       for await (const chunk of chatStream({
@@ -1453,14 +1469,9 @@ function wireChat(): void {
             sources.push({ url: s.url, title: s.title, favicon: s.favicon })
           }
           if (live) live.sources = [...sources]
-          if (isActiveSession(sessionId)) ensureSourcesBlock(sources)
-          else if (live && live.root.parentElement === null) {
-            // Background session: still build block off-DOM so re-attach shows it
-            ensureSourcesBlock(sources)
-            // Detach again until session becomes active
-            if (sourcesWrap) sourcesWrap.remove()
-            if (live) live.sourcesWrap = sourcesWrap
-          }
+          // Sources are buffered until the answer finishes (the pill renders
+          // after generation, once the full source list is known). No DOM work
+          // mid-stream — ensureSourcesBlock runs in the completion path only.
         } else if (chunk.type === 'thinking' && !contentStarted) {
           thinking += chunk.text
           if (live) live.thinking = thinking
@@ -1481,6 +1492,8 @@ function wireChat(): void {
       if (isActiveSession(sessionId)) {
         if (!full) answerEl.textContent = '(empty reply)'
       }
+      // Answer finished — now reveal the sources pill (if any were buffered).
+      revealSources()
       persistAssistant(full)
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
@@ -1490,7 +1503,10 @@ function wireChat(): void {
         currentDetails()?.classList.remove('reasoning-active')
         currentDetails()?.querySelector('.think-dots')?.remove()
         answerEl.textContent = full ? full + ' — aborted' : 'Aborted.'
-        if (full) persistAssistant(full + ' — aborted', { isAbort: true })
+        if (full) {
+          revealSources()
+          persistAssistant(full + ' — aborted', { isAbort: true })
+        }
         else if (isActiveSession(sessionId)) {
           // No content yet — show aborted placeholder only if active
         }
@@ -1503,6 +1519,7 @@ function wireChat(): void {
           if (isActiveSession(sessionId)) showError(msg || 'Failed to get reply.')
         } else {
           answerEl.textContent = full
+          revealSources()
           if (isActiveSession(sessionId)) showError(msg)
         }
         if (full) persistAssistant(full)
