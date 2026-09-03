@@ -228,6 +228,14 @@ body.sidebar-collapsed #model-selector {
  * wrench, and a circled-check "Done" row closes the trace.
  */
 
+/* Height parity with the Sources pill: that pill's 1.375rem favicon stack
+   sets its row height, while the Reasoning pill's icon/label are shorter —
+   pin the same min-height (favicon + vertical padding + border, border-box)
+   so both buttons render identical heights side by side. */
+.reasoning-pill {
+  min-height: calc(1.375rem + 0.6rem + 2px);
+}
+
 /* Icon and live step count inside the pill. The pill itself shares
    `.sources-pill` styling with the Sources button. */
 .reasoning-pill-icon {
@@ -1133,4 +1141,184 @@ body.sidebar-collapsed #model-selector {
   height: auto;
   margin: 0.5rem 0;
   border-radius: 0.5rem;
+}
+
+/*
+ * Syntax highlighting — token colors for fenced code blocks, applied by
+ * src/renderer/highlight.ts on top of the Markdown renderer's `<pre><code
+ * class="language-*">` output (the Markdown libraries themselves stay
+ * untouched). Palettes: VS Code Light+ on light, One Dark on dark (the app's
+ * `--color-accent: #7aa2f7` is One Dark's blue, so the two match).
+ */
+:root {
+  --hl-text: #1f2328;
+  --hl-keyword: #0000ff;
+  --hl-string: #a31515;
+  --hl-number: #098658;
+  --hl-comment: #008000;
+  --hl-title: #795e26;
+  --hl-type: #267f99;
+  --hl-builtin: #267f99;
+  --hl-literal: #0000ff;
+  --hl-variable: #001080;
+  --hl-attr: #795e26;
+  --hl-tag: #800000;
+  --hl-meta: #6a737d;
+  --hl-operator: #1f2328;
+  --hl-addition: #22863a;
+  --hl-deletion: #b31d28;
+}
+:root.dark {
+  --hl-text: #abb2bf;
+  --hl-keyword: #c678dd;
+  --hl-string: #98c379;
+  --hl-number: #d19a66;
+  --hl-comment: #7f848e;
+  --hl-title: #61afef;
+  --hl-type: #e5c07b;
+  --hl-builtin: #e5c07b;
+  --hl-literal: #56b6c2;
+  --hl-variable: #e06c75;
+  --hl-attr: #d19a66;
+  --hl-tag: #e06c75;
+  --hl-meta: #7f848e;
+  --hl-operator: #56b6c2;
+  --hl-addition: #98c379;
+  --hl-deletion: #e06c75;
+}
+
+.markdown-content pre code.hljs {
+  color: var(--hl-text);
+}
+.markdown-content pre code.hljs .hljs-comment,
+.markdown-content pre code.hljs .hljs-quote {
+  color: var(--hl-comment);
+  font-style: italic;
+}
+.markdown-content pre code.hljs .hljs-meta {
+  color: var(--hl-meta);
+}
+.markdown-content pre code.hljs .hljs-keyword,
+.markdown-content pre code.hljs .hljs-selector-tag {
+  color: var(--hl-keyword);
+}
+.markdown-content pre code.hljs .hljs-literal {
+  color: var(--hl-literal);
+}
+.markdown-content pre code.hljs .hljs-string,
+.markdown-content pre code.hljs .hljs-regexp,
+.markdown-content pre code.hljs .hljs-symbol,
+.markdown-content pre code.hljs .hljs-template-variable,
+.markdown-content pre code.hljs .hljs-template-tag,
+.markdown-content pre code.hljs .hljs-link {
+  color: var(--hl-string);
+}
+.markdown-content pre code.hljs .hljs-number,
+.markdown-content pre code.hljs .hljs-bullet {
+  color: var(--hl-number);
+}
+.markdown-content pre code.hljs .hljs-title,
+.markdown-content pre code.hljs .hljs-title.function_,
+.markdown-content pre code.hljs .hljs-section {
+  color: var(--hl-title);
+}
+.markdown-content pre code.hljs .hljs-title.class_,
+.markdown-content pre code.hljs .hljs-type {
+  color: var(--hl-type);
+}
+.markdown-content pre code.hljs .hljs-built_in,
+.markdown-content pre code.hljs .hljs-builtin-name,
+.markdown-content pre code.hljs .hljs-name {
+  color: var(--hl-builtin);
+}
+.markdown-content pre code.hljs .hljs-attr,
+.markdown-content pre code.hljs .hljs-attribute,
+.markdown-content pre code.hljs .hljs-variable.constant_ {
+  color: var(--hl-attr);
+}
+.markdown-content pre code.hljs .hljs-variable,
+.markdown-content pre code.hljs .hljs-variable.language_ {
+  color: var(--hl-variable);
+}
+.markdown-content pre code.hljs .hljs-operator,
+.markdown-content pre code.hljs .hljs-punctuation {
+  color: var(--hl-operator);
+}
+.markdown-content pre code.hljs .hljs-tag,
+.markdown-content pre code.hljs .hljs-selector-id,
+.markdown-content pre code.hljs .hljs-selector-class,
+.markdown-content pre code.hljs .hljs-selector-attr,
+.markdown-content pre code.hljs .hljs-selector-pseudo {
+  color: var(--hl-tag);
+}
+.markdown-content pre code.hljs .hljs-addition {
+  color: var(--hl-addition);
+}
+.markdown-content pre code.hljs .hljs-deletion {
+  color: var(--hl-deletion);
+}
+.markdown-content pre code.hljs .hljs-emphasis {
+  font-style: italic;
+}
+.markdown-content pre code.hljs .hljs-strong {
+  font-weight: 600;
+}
+
+/* VS Code-style code block chrome — the header bar (language label + copy
+   button) that src/renderer/highlight.ts wraps around each `<pre>`. The
+   container takes over the border/radius/background the plain pre used to
+   carry; the inner pre keeps its padding and horizontal scroll. */
+.markdown-content .code-block {
+  margin: 0.75rem 0;
+  border: 1px solid color-mix(in oklab, var(--color-line) 70%, transparent);
+  border-radius: 0.75rem;
+  background: color-mix(in oklab, var(--color-card) 85%, var(--color-line));
+  overflow: hidden;
+}
+.markdown-content .code-block pre {
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.markdown-content .code-block-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.375rem 0.625rem;
+  background: color-mix(in oklab, var(--color-card) 70%, var(--color-line));
+  border-bottom: 1px solid color-mix(in oklab, var(--color-line) 60%, transparent);
+  user-select: none;
+}
+.markdown-content .code-block-lang {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-dim);
+}
+.markdown-content .code-block-copy {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  border: 0;
+  border-radius: 0.375rem;
+  background: transparent;
+  color: var(--color-dim);
+  cursor: pointer;
+  transition: color 0.14s ease, background-color 0.14s ease;
+}
+.markdown-content .code-block-copy:hover {
+  color: var(--color-ink);
+  background: color-mix(in oklab, var(--color-line) 60%, transparent);
+}
+.markdown-content .code-block-copy.copied {
+  color: color-mix(in oklab, var(--color-accent) 70%, var(--color-ink));
+}
+.markdown-content .code-block-copy-icon {
+  width: 0.875rem;
+  height: 0.875rem;
 }

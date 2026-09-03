@@ -8,7 +8,7 @@ import { appWindow, titleBarMetrics } from '@vantail/api'
 import { ChevronDown, createIcons, MessageCircle, Mic, Moon, PanelLeft, Pencil, Pin, PinOff, Plus, Search, SendHorizontal, Settings, Square, SquarePen, Sun, Trash2, Wrench, X } from 'lucide'
 import { ChatHistory, chatStream, getSelectedModel, setSelectedModel, type SelectedModel, type Source } from './chat.ts'
 import { sessionStore, type ChatSession } from './sessions.ts'
-import { renderMarkdown } from '../shared/markdown-full.ts'
+import { renderMarkdownHighlighted } from './highlight.ts'
 import { stripSourcesFromContent } from '../shared/chat.ts'
 
 // Hydrate the Lucide icons declared as `<i data-lucide="…">` in index.html.
@@ -1287,27 +1287,13 @@ function wireChat(): void {
    * Sources pill styling (`.sources-pill`); the panel reuses the sources
    * panel box (`.sources-panel`), matching the references.
    */
-  // Per-chat isolation for the reasoning panel's open/closed state.
-  // Each assistant message's trace gets its own storage key
-  // `hideout.reasoning.<sessionId>.<msgIdx>` so toggling in one chat
-  // (or one message) never affects another chat. Live (streaming) traces
-  // use `hideout.reasoning.live.<sessionId>` and start collapsed.
-  const reasoningStorageKey = (sessionId: string, msgIdx: number | 'live'): string => `hideout.reasoning.${sessionId}.${msgIdx}`
-  const getStoredReasoningExpanded = (key: string, fallback: boolean): boolean => {
-    try {
-      const v = localStorage.getItem(key)
-      if (v === '1') return true
-      if (v === '0') return false
-    } catch {}
-    return fallback
-  }
-  const setStoredReasoningExpanded = (key: string, expanded: boolean): void => {
-    try {
-      localStorage.setItem(key, expanded ? '1' : '0')
-    } catch {}
-  }
+  // Reasoning panels always start collapsed — the user expands them by
+  // clicking the pill. Expansion state lives in the DOM only (no
+  // persistence), so every re-render (chat switch, app start) collapses
+  // again. Stale `hideout.reasoning.*` keys from earlier builds are never
+  // read and can be ignored.
 
-  const buildReasoning = (opts: { thinking: string; sources: Source[]; query: string; active: boolean; storageKey?: string }): {
+  const buildReasoning = (opts: { thinking: string; sources: Source[]; query: string; active: boolean }): {
     pill: HTMLButtonElement
     label: HTMLElement
     count: HTMLElement
@@ -1319,12 +1305,12 @@ function wireChat(): void {
     /** The Done row, absent while `active` (still reasoning). */
     doneRow: HTMLElement | null
   } => {
-    const fallbackExpanded = !opts.active
-    const initialExpanded = opts.storageKey ? getStoredReasoningExpanded(opts.storageKey, fallbackExpanded) : fallbackExpanded
+    // Always collapsed initially, for live and finished turns alike — the
+    // panel is enlarged only by an explicit user click below.
     const pill = document.createElement('button')
     pill.type = 'button'
     pill.className = 'sources-pill reasoning-pill'
-    pill.setAttribute('aria-expanded', String(initialExpanded))
+    pill.setAttribute('aria-expanded', 'false')
     pill.setAttribute('aria-label', opts.active ? 'Thinking' : 'Reasoning')
     if (opts.active) {
       // Thinking state: the icon is replaced by an iMessage/Messenger-style
@@ -1349,17 +1335,15 @@ function wireChat(): void {
 
     const panel = document.createElement('div')
     panel.className = 'sources-panel reasoning-panel'
-    // Starts collapsed while reasoning is in progress; finished turns load
-    // expanded so a reopened trace reads fully — unless the user previously
-    // collapsed it for this exact message (stored per chat).
-    panel.hidden = !initialExpanded
+    // Starts collapsed everywhere — finished turns included. The user opens
+    // the trace by clicking the pill (see the click listener above).
+    panel.hidden = true
     if (opts.active) panel.classList.add('is-active')
 
     pill.addEventListener('click', () => {
       const open = pill.getAttribute('aria-expanded') !== 'true'
       pill.setAttribute('aria-expanded', String(open))
       panel.hidden = !open
-      if (opts.storageKey) setStoredReasoningExpanded(opts.storageKey, open)
     })
 
     const stepsBox = document.createElement('div')
@@ -1393,12 +1377,12 @@ function wireChat(): void {
     return { pill, label, count, panel, stepsBox, toolRow, doneRow }
   }
 
-  const renderPersistedReasoning = (content: string, thinking: string, sources?: Source[], query?: string, storageKey?: string): HTMLElement => {
+  const renderPersistedReasoning = (content: string, thinking: string, sources?: Source[], query?: string): HTMLElement => {
     const root = document.createElement('div')
     root.className = 'flex w-full flex-col gap-4'
     const answer = document.createElement('div')
     answer.className = 'markdown-content w-full break-words text-sm leading-relaxed text-ink'
-    answer.innerHTML = renderMarkdown(stripSourcesFromContent(content))
+    renderMarkdownHighlighted(answer, stripSourcesFromContent(content))
     root.appendChild(answer)
     // The Reasoning + Sources pills sit below the answer in one shared row,
     // each expanding into its own panel — same pill/panel language.
@@ -1411,7 +1395,7 @@ function wireChat(): void {
       pillRow.className = 'flex flex-wrap items-center gap-2'
       controls.appendChild(pillRow)
       if (hasReasoning) {
-        const r = buildReasoning({ thinking, sources: sources ?? [], query: query ?? '', active: false, ...(storageKey ? { storageKey } : {}) })
+        const r = buildReasoning({ thinking, sources: sources ?? [], query: query ?? '', active: false })
         pillRow.appendChild(r.pill)
         controls.appendChild(r.panel)
       }
@@ -1541,8 +1525,7 @@ function wireChat(): void {
     // Done row are appended to the panel as they happen.
     const ensureReasoning = () => {
       if (reasoning) return reasoning
-      const key = reasoningStorageKey(sessionId, 'live')
-      const r = buildReasoning({ thinking: '', sources: [], query: '', active: true, storageKey: key })
+      const r = buildReasoning({ thinking: '', sources: [], query: '', active: true })
       reasoning = r
       pillRow.appendChild(r.pill)
       controls.appendChild(r.panel)
@@ -1716,13 +1699,13 @@ function wireChat(): void {
           }
           full += chunk.text
           if (live) live.full = full
-          answerEl.innerHTML = renderMarkdown(stripSourcesFromContent(full))
+          renderMarkdownHighlighted(answerEl, stripSourcesFromContent(full))
         }
         if (isActiveSession(sessionId)) scrollToBottom()
       }
       if (isActiveSession(sessionId)) {
-        if (!full) answerEl.innerHTML = renderMarkdown('(empty reply)')
-        else answerEl.innerHTML = renderMarkdown(stripSourcesFromContent(full))
+        if (!full) renderMarkdownHighlighted(answerEl, '(empty reply)')
+        else renderMarkdownHighlighted(answerEl, stripSourcesFromContent(full))
       }
       // Answer finished — now reveal the sources pill (if any were buffered).
       revealSources()
@@ -1733,7 +1716,8 @@ function wireChat(): void {
         // Timeline may not exist if we never got a thinking delta; any tool
         // row still reads fine — just close the trace with Done.
         finishReasoning()
-        answerEl.innerHTML = full ? renderMarkdown(stripSourcesFromContent(full) + ' — aborted') : 'Aborted.'
+        if (full) renderMarkdownHighlighted(answerEl, stripSourcesFromContent(full) + ' — aborted')
+        else answerEl.innerHTML = 'Aborted.'
         if (full) {
           revealSources()
           persistAssistant(full + ' — aborted', { isAbort: true })
@@ -1749,7 +1733,7 @@ function wireChat(): void {
           liveChats.delete(sessionId)
           if (isActiveSession(sessionId)) showError(msg || 'Failed to get reply.')
         } else {
-          answerEl.innerHTML = renderMarkdown(stripSourcesFromContent(full))
+          renderMarkdownHighlighted(answerEl, stripSourcesFromContent(full))
           revealSources()
           if (isActiveSession(sessionId)) showError(msg)
         }
@@ -1829,7 +1813,6 @@ function wireChat(): void {
       // Render historic messages first (includes the user message), then
       // the live assistant area that is still streaming.
       let lastUserContent = ''
-      let assistantIdx = 0
       for (const m of history.all) {
         if (m.role === 'user') {
           lastUserContent = m.content
@@ -1843,13 +1826,12 @@ function wireChat(): void {
         } else if (m.role === 'assistant') {
           // Already persisted assistant turns; live root holds the *current* pending turn
           // Include persisted sources so history shows the pill even before live attaches
-          const key = reasoningStorageKey(id, assistantIdx++)
-          column.appendChild(renderPersistedReasoning(m.content, m.thinking ?? '', m.sources, lastUserContent, key))
+          column.appendChild(renderPersistedReasoning(m.content, m.thinking ?? '', m.sources, lastUserContent))
         }
       }
       column.appendChild(live.root)
       // Sync answer text if it grew while detached
-      live.answerEl.innerHTML = renderMarkdown(stripSourcesFromContent(live.full))
+      renderMarkdownHighlighted(live.answerEl, stripSourcesFromContent(live.full))
       // Ensure the Sources pill is visible if it arrived while detached
       if (live.sources.length > 0 && (!live.sourcesPill || !live.sourcesPill.isConnected)) {
         // Re-create pill + panel now that we're back on this session
@@ -1867,7 +1849,6 @@ function wireChat(): void {
     }
     // Normal (non-live) render
     let lastUserContent = ''
-    let assistantIdx2 = 0
     for (const m of history.all) {
       if (m.role === 'user') {
         lastUserContent = m.content
@@ -1879,8 +1860,7 @@ function wireChat(): void {
         wrap.appendChild(bubble)
         column.appendChild(wrap)
       } else if (m.role === 'assistant') {
-        const key = reasoningStorageKey(id, assistantIdx2++)
-        column.appendChild(renderPersistedReasoning(m.content, m.thinking ?? '', m.sources, lastUserContent, key))
+        column.appendChild(renderPersistedReasoning(m.content, m.thinking ?? '', m.sources, lastUserContent))
       }
     }
     thread.scrollTop = thread.scrollHeight
