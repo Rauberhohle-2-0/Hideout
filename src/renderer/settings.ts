@@ -32,3 +32,12 @@ export function kvToObject(rows: KvRowValue[]): Record<string, string> {
   }
   return out;
 }
+
+/** Human label for known provider ids; falls back to the raw id. */
+export function providerLabel(providerId: string): string {
+  const labels: Record<string, string> = {
+    openai: "OpenAI",
+    anthropic: "Anthropic",
+  };
+  return labels[providerId] ?? providerId;
+}

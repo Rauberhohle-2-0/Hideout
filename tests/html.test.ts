@@ -37,6 +37,14 @@ describe("index.html", () => {
     expect(html).toContain("connect on first use");
   });
 
+  test("contains the provider API key section", () => {
+    expect(html).toContain('id="credentials-section"');
+    expect(html).toContain('id="credentials-list"');
+    expect(html).toContain('id="credentials-loading"');
+    expect(html).toContain('id="credentials-error"');
+    expect(html).toContain('id="credentials-retry"');
+  });
+
   test("is not a TSX / component renderer", () => {
     expect(html).not.toContain("className");
     expect(html).not.toContain(".tsx");

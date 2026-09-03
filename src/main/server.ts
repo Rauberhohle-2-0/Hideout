@@ -558,42 +558,69 @@ export function createApp(options: CreateAppOptions = {}) {
   // The sidecar binds to 127.0.0.1 only, so remote hosts cannot reach these
   // routes. Logs redact keys via `maskApiKey`.
 
-  const KNOWN_CREDENTIAL_PROVIDERS = new Set(["openai", "anthropic", "claude"]);
+  // `claude` is deliberately NOT a provider: Anthropic is the sole provider
+  // for Claude models. Older versions also stored a key under the `claude`
+  // alias; `migrateLegacyClaudeKey` folds any such entry into the canonical
+  // `anthropic` one, and the routes below stop keeping the alias in sync.
+  const KNOWN_CREDENTIAL_PROVIDERS = new Set(["openai", "anthropic"]);
+  const LEGACY_CREDENTIAL_IDS = new Set(["claude"]);
   const isValidProviderId = (id: string): boolean =>
-    KNOWN_CREDENTIAL_PROVIDERS.has(id) || /^[a-z][a-z0-9_-]{1,30}$/.test(id);
+    !LEGACY_CREDENTIAL_IDS.has(id) &&
+    (KNOWN_CREDENTIAL_PROVIDERS.has(id) || /^[a-z][a-z0-9_-]{1,30}$/.test(id));
+
+  /** State for one provider's key — raw keys never leave this function. */
+  const toCredentialState = async (providerId: string) => {
+    const raw = await credentialStore.get(providerId).catch(() => null);
+    const hasKey = raw !== null && raw.length > 0;
+    return {
+      providerId,
+      hasKey,
+      maskedKey: hasKey ? maskApiKey(raw!) : null,
+    };
+  };
+
+  /**
+   * One-time migration: older builds kept Anthropic keys in sync under the
+   * `claude` alias. Fold a legacy `claude` entry into the canonical
+   * `anthropic` one (when no `anthropic` key exists yet) and delete it, so
+   * every read converges on a single entry per provider. Safe to call
+   * repeatedly; it is a no-op once no `claude` key remains.
+   */
+  const migrateLegacyClaudeKey = async (): Promise<void> => {
+    const legacy = await credentialStore.get("claude").catch(() => null);
+    if (!legacy) return;
+    try {
+      const canonical = await credentialStore.get("anthropic");
+      if (!canonical) await credentialStore.set("anthropic", legacy);
+    } finally {
+      // Drop the alias whether or not the copy succeeded — the canonical
+      // entry (new or pre-existing) is the single source of truth now.
+      await credentialStore.delete("claude").catch(() => {});
+    }
+  };
 
   // List every known provider's credential state — no raw keys.
   app.get("/api/credentials", async (c) => {
+    // Fold any legacy `claude` key into `anthropic` before listing so the UI
+    // never shows a stale duplicate row.
+    await migrateLegacyClaudeKey();
     const ids = new Set<string>([
       ...KNOWN_CREDENTIAL_PROVIDERS,
       ...registry.ids().filter((id) => id !== "ollama"),
     ]);
-    const credentials = await Promise.all(
-      [...ids].map(async (providerId) => {
-        const raw = await credentialStore.get(providerId).catch(() => null);
-        const hasKey = raw !== null && raw.length > 0;
-        return {
-          providerId,
-          hasKey,
-          maskedKey: hasKey ? maskApiKey(raw!) : null,
-        };
-      }),
-    );
+    const credentials = await Promise.all([...ids].map((id) => toCredentialState(id)));
     return c.json({ credentials });
   });
 
   app.get("/api/credentials/:providerId", async (c) => {
     const providerId = c.req.param("providerId");
     if (!isValidProviderId(providerId)) {
+      // `claude` is rejected on purpose — Anthropic is the only provider; the
+      // legacy alias key is migrated (see migrateLegacyClaudeKey).
       return c.json({ error: "Unknown provider" }, 400);
     }
-    const raw = await credentialStore.get(providerId).catch(() => null);
-    const hasKey = raw !== null && raw.length > 0;
-    return c.json({
-      providerId,
-      hasKey,
-      maskedKey: hasKey ? maskApiKey(raw!) : null,
-    });
+    if (providerId === "anthropic") await migrateLegacyClaudeKey();
+    return c.json(await toCredentialState(providerId));
   });
 
   app.put("/api/credentials/:providerId", async (c) => {
@@ -618,13 +645,9 @@ export function createApp(options: CreateAppOptions = {}) {
       return c.json({ error: "apiKey looks too short" }, 400);
     }
     await credentialStore.set(providerId, trimmed);
-    // Also mirror `claude` <-> `anthropic` so either name works. The keychain
-    // holds one entry per name; keep them in sync for UX.
-    if (providerId === "anthropic") {
-      await credentialStore.set("claude", trimmed).catch(() => {});
-    } else if (providerId === "claude") {
-      await credentialStore.set("anthropic", trimmed).catch(() => {});
-    }
+    // A stored key supersedes any legacy `claude` alias (it would otherwise
+    // shadow nothing — `anthropic` always wins — but leave the keychain tidy).
+    await credentialStore.delete("claude").catch(() => {});
     return c.json({
       providerId,
       hasKey: true,
@@ -638,11 +661,9 @@ export function createApp(options: CreateAppOptions = {}) {
       return c.json({ error: "Unknown provider" }, 400);
     }
     const deleted = await credentialStore.delete(providerId).catch(() => false);
-    if (providerId === "anthropic") {
-      await credentialStore.delete("claude").catch(() => {});
-    } else if (providerId === "claude") {
-      await credentialStore.delete("anthropic").catch(() => {});
-    }
+    // Removing a provider's key also removes its legacy `claude` alias so a
+    // stale copy cannot resurface on the next read.
+    await credentialStore.delete("claude").catch(() => {});
     return c.json({ providerId, deleted, hasKey: false, maskedKey: null });
   });
 

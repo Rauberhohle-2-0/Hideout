@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { kvToObject, slugifyServerId } from "../src/renderer/settings.ts";
+import { kvToObject, providerLabel, slugifyServerId } from "../src/renderer/settings.ts";
 
 describe("slugifyServerId", () => {
   test("lowercases and replaces spaces/special chars with dashes", () => {
@@ -37,5 +37,19 @@ describe("kvToObject", () => {
 
   test("returns an empty object for no rows", () => {
     expect(kvToObject([])).toEqual({});
+  });
+});
+
+describe("providerLabel", () => {
+  test("maps known providers to display names", () => {
+    expect(providerLabel("openai")).toBe("OpenAI");
+    expect(providerLabel("anthropic")).toBe("Anthropic");
+  });
+
+  test("falls back to the raw id for unknown providers", () => {
+    // `claude` is not a provider — Anthropic covers Claude models.
+    expect(providerLabel("claude")).toBe("claude");
+    expect(providerLabel("ollama")).toBe("ollama");
+    expect(providerLabel("my-provider")).toBe("my-provider");
   });
 });

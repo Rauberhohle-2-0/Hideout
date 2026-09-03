@@ -1,13 +1,16 @@
 /**
- * Anthropic (Claude) provider — API-key authenticated.
+ * Anthropic provider — API-key authenticated, serves Claude models.
  *
  * Same keychain guarantees as `OpenAIProvider`: the key is fetched from
  * `Bun.secrets` / `@vantail/api` secrets on every request, never cached in
  * the instance, never logged, never returned over HTTP.
  *
  * Storage key: `provider.anthropic.apiKey` (service `dev.hideout.desktop`).
- * Also aliased as `provider.claude.apiKey` for backwards compat — both names
- * are checked, `anthropic` wins.
+ * Older builds also wrote a `provider.claude.apiKey` alias; the server
+ * migrates it into the canonical `anthropic` entry (see the credential
+ * routes in `src/main/server.ts`). As a belt-and-braces fallback this
+ * provider still reads the legacy alias when no `anthropic` key exists,
+ * so chat keeps working before the first migration runs. `anthropic` wins.
  *
  * API: `GET https://api.anthropic.com/v1/models` with headers
  * `x-api-key` and `anthropic-version`. Env fallback: `ANTHROPIC_API_KEY`.
@@ -49,7 +52,7 @@ function resolveApiKeyFromEnv(): string | null {
 
 export class AnthropicProvider extends BaseProvider {
   readonly id = "anthropic";
-  readonly name = "Claude";
+  readonly name = "Anthropic";
 
   private readonly credentialStore: CredentialStore;
   private readonly fetchImpl: typeof fetch;
@@ -66,11 +69,12 @@ export class AnthropicProvider extends BaseProvider {
     this.anthropicVersion = options.anthropicVersion ?? "2023-06-01";
   }
 
-  /** Also accept `claude` alias when reading credentials. */
+  /** Also accept the legacy `claude` alias when reading credentials. */
   private async getApiKey(): Promise<string | null> {
     const primary = await this.credentialStore.get(this.id);
     if (primary) return primary;
-    // Alias: `provider.claude.apiKey` — lets users store under either name.
+    // Legacy alias: keys stored under `claude` by older builds are migrated
+    // by the credential routes; this fallback keeps them working until then.
     const alias = await this.credentialStore.get("claude");
     if (alias) return alias;
     return resolveApiKeyFromEnv();
@@ -282,6 +286,9 @@ export class AnthropicProvider extends BaseProvider {
   }
 }
 
-/** Alias so `new ClaudeProvider()` also works — same backing store. */
+/**
+ * Compatibility alias so `new ClaudeProvider()` keeps working. Anthropic is
+ * the single provider — same implementation, same backing store.
+ */
 export const ClaudeProvider = AnthropicProvider;
 export type ClaudeOptions = AnthropicOptions;

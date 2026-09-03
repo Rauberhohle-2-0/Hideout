@@ -121,28 +121,76 @@ describe("secure credential storage", () => {
     expect(models.models.length).toBe(0);
   });
 
-  test("anthropic alias claude stays in sync", async () => {
+  test("legacy claude key migrates to anthropic on list", async () => {
     const store = new MemoryCredentialStore();
+    // Simulate an older build: the key lives only under the `claude` alias.
+    const raw = "sk-ant-legacy-test-1234567890abcd";
+    await store.set("claude", raw);
+    const registry = new ProviderRegistry();
+    registry.register(new OllamaProvider({ fetchImpl: mockFetchFor({}) }));
+    registry.register(new AnthropicProvider({ credentialStore: store, fetchImpl: mockFetchFor({}) }));
+    const app = createApp({ registry, credentialStore: store });
+
+    const res = await app.request("/api/credentials");
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { credentials: Array<{ providerId: string; hasKey: boolean; maskedKey: string | null }> };
+
+    // The migrated key now shows under the canonical `anthropic` provider.
+    const anthropic = body.credentials.find((c) => c.providerId === "anthropic");
+    expect(anthropic?.hasKey).toBe(true);
+    expect(anthropic?.maskedKey).toBe(maskApiKey(raw));
+
+    // Claude is no longer a credential provider — no separate row.
+    expect(body.credentials.find((c) => c.providerId === "claude")).toBeUndefined();
+
+    // The alias entry is gone; the canonical one holds the key.
+    expect(await store.get("claude")).toBeNull();
+    expect(await store.get("anthropic")).toBe(raw);
+  });
+
+  test("anthropic PUT stores only the canonical entry", async () => {
+    const store = new MemoryCredentialStore();
+    // A stale alias from an older build must not survive a fresh save.
+    await store.set("claude", "sk-ant-stale-alias-1234567890abcd");
     const registry = new ProviderRegistry();
     registry.register(new OllamaProvider({ fetchImpl: mockFetchFor({}) }));
     registry.register(new AnthropicProvider({ credentialStore: store, fetchImpl: mockFetchFor({ anthropic: ["claude-3"] }) }));
     const app = createApp({ registry, credentialStore: store });
 
-    const raw = "sk-ant-alias-test-1234567890abcd";
-    await app.request("/api/credentials/anthropic", {
+    const raw = "sk-ant-canonical-test-1234567890abcd";
+    const put = await app.request("/api/credentials/anthropic", {
       method: "PUT",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ apiKey: raw }),
     });
+    expect(put.status).toBe(200);
     expect(await store.get("anthropic")).toBe(raw);
-    expect(await store.get("claude")).toBe(raw);
+    expect(await store.get("claude")).toBeNull();
 
-    const getClaude = (await (await app.request("/api/credentials/claude")).json()) as { hasKey: boolean };
-    expect(getClaude.hasKey).toBe(true);
-
-    await app.request("/api/credentials/claude", { method: "DELETE" });
+    // DELETE removes the canonical entry only (there is no alias to mirror).
+    const del = await app.request("/api/credentials/anthropic", { method: "DELETE" });
+    expect(del.status).toBe(200);
     expect(await store.get("anthropic")).toBeNull();
     expect(await store.get("claude")).toBeNull();
+  });
+
+  test("legacy claude provider id is rejected", async () => {
+    const store = new MemoryCredentialStore();
+    await store.set("claude", "sk-ant-legacy-get-1234567890abcd");
+    const app = createApp({ credentialStore: store });
+
+    const res = await app.request("/api/credentials/claude");
+    expect(res.status).toBe(400);
+    // The key stays in the store until a canonical read migrates it.
+    expect(await store.get("claude")).toBe("sk-ant-legacy-get-1234567890abcd");
+    expect(await store.get("anthropic")).toBeNull();
+
+    // Reading the canonical provider migrates the legacy key.
+    const get = await app.request("/api/credentials/anthropic");
+    expect(get.status).toBe(200);
+    expect((await get.json() as { hasKey: boolean }).hasKey).toBe(true);
+    expect(await store.get("claude")).toBeNull();
+    expect(await store.get("anthropic")).toBe("sk-ant-legacy-get-1234567890abcd");
   });
 
   test("invalid apiKey is rejected", async () => {
