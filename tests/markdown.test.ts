@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { renderMarkdown } from "../src/shared/markdown-full.ts";
+import { renderMarkdown } from "../src/shared/markdown.ts";
 
 describe("tables", () => {
   test("renders header and body", () => {

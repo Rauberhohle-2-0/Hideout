@@ -3,7 +3,7 @@
  *
  * Highlighting is a post-render DOM pass: the Markdown renderer already emits
  * `<pre><code class="language-*">` for complete fenced blocks, so we hook into
- * that output without touching the Markdown libraries (`src/shared/`). It is
+ * that output without touching the Markdown renderer (`src/shared/markdown.ts`). It is
  * driven by highlight.js (already a dependency), which is grammar-based and
  * covers the languages models actually emit.
  *
@@ -18,7 +18,7 @@
 
 import hljs from "highlight.js/lib/common";
 import { clipboard } from "@vantail/api";
-import { renderMarkdown } from "../shared/markdown-full.ts";
+import { renderMarkdown } from "../shared/markdown.ts";
 import { escape } from "../shared/escape.ts";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -162,7 +162,7 @@ function wrapCodeBlock(pre: HTMLElement, raw: string, tag: string | null): void 
 }
 
 /**
- * Render Markdown into `el` (via `src/shared/markdown-full.ts`) and apply
+ * Render Markdown into `el` (via `src/shared/markdown.ts`) and apply
  * VS Code-style treatment: syntax coloring for every fenced block plus a
  * header bar with the language tag and a copy button. Safe to call on every
  * stream delta — complete blocks are re-highlighted in place, and a block

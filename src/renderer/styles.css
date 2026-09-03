@@ -1146,7 +1146,7 @@ body.sidebar-collapsed #model-selector {
 /*
  * Syntax highlighting — token colors for fenced code blocks, applied by
  * src/renderer/highlight.ts on top of the Markdown renderer's `<pre><code
- * class="language-*">` output (the Markdown libraries themselves stay
+ * class="language-*">` output (the Markdown renderer itself stays
  * untouched). Palettes: VS Code Light+ on light, One Dark on dark (the app's
  * `--color-accent: #7aa2f7` is One Dark's blue, so the two match).
  */
