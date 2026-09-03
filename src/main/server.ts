@@ -17,6 +17,7 @@ import {
   TIP_ROUTE,
 } from "../shared/constants.ts";
 import { stripSourcesFromContent, validateChatRequest, type Source } from "../shared/chat.ts";
+import { isAllowedHttpUrl } from "../shared/safe-url.ts";
 import { greeting, tip } from "./views.ts";
 import { OllamaProvider } from "../providers/implementations/ollama.ts";
 import { OpenAIProvider } from "../providers/implementations/openai.ts";
@@ -384,11 +385,12 @@ export async function collectWebSearch(
     const fallbackSources = items.length === 0 ? extractSourcesFromMcpResult(raw) : [];
     const sourcesFromItems: Source[] = items.map((it) => ({ url: it.url, title: it.title ?? it.url }));
     const sources = sourcesFromItems.length > 0 ? sourcesFromItems : fallbackSources;
-    // Dedupe by URL
+    // Dedupe by URL, dropping anything that is not an absolute http(s) URL so
+    // no javascript:/file:/malformed link can reach the renderer's pills.
     const seen = new Set<string>();
     const deduped: Source[] = [];
     for (const s of sources) {
-      if (!s.url || seen.has(s.url)) continue;
+      if (!isAllowedHttpUrl(s.url) || seen.has(s.url)) continue;
       seen.add(s.url);
       deduped.push(s);
       if (deduped.length >= 5) break;

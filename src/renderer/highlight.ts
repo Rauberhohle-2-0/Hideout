@@ -17,9 +17,9 @@
  */
 
 import hljs from "highlight.js/lib/common";
-import { clipboard } from "@vantail/api";
 import { renderMarkdown } from "../shared/markdown.ts";
 import { escape } from "../shared/escape.ts";
+import { writeClipboardText } from "./platform.ts";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -113,7 +113,7 @@ function showCopied(btn: HTMLButtonElement): void {
 /** Best-effort copy via the native API, falling back to execCommand. */
 async function copyToClipboard(code: string, btn: HTMLButtonElement): Promise<void> {
   try {
-    await clipboard.writeText(code);
+    await writeClipboardText(code);
     showCopied(btn);
     return;
   } catch {
