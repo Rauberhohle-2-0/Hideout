@@ -8,6 +8,9 @@
  * - DELETE /api/mcp/servers/:id          — remove server
  * - POST   /api/mcp/servers/:id/connect  — connect (listTools to verify)
  * - POST   /api/mcp/servers/:id/disconnect — disconnect
+ * - POST   /api/mcp/servers/:id/approve  — trust a STDIO server (record approval)
+ * - POST   /api/mcp/servers/:id/revoke-approval — untrust a STDIO server
+ * - GET    /api/mcp/servers/:id/audit    — trust/policy change history
  * - GET    /api/mcp/servers/:id/tools    — list tools (auto-connects if enabled)
  * - POST   /api/mcp/servers/:id/tools/call — { name, arguments }
  *
@@ -16,10 +19,25 @@
  * Built-in servers (Exa) are code-owned and read-only: POST/PUT/DELETE with a
  * built-in id returns 409 and never touches the user store.
  */
-import { Hono } from "hono";
-import type { McpManager } from "./manager.ts";
-import { validateMcpServerConfig, normalizeMcpServerConfig } from "../shared/mcp.ts";
+import { Hono, type Context } from "hono";
+import { McpApprovalRequiredError, type McpManager } from "./manager.ts";
+import {
+  validateMcpServerConfig,
+  normalizeMcpServerConfig,
+  mergePreservedSecrets,
+} from "../shared/mcp.ts";
 import type { McpServerConfig } from "../shared/mcp.ts";
+import { readJsonBodyBounded } from "../shared/http-body.ts";
+
+/** Read a JSON body with the shared byte cap; returns a Hono error response on failure. */
+async function readBody(c: Context): Promise<{ error?: Response; body?: unknown }> {
+  const result = await readJsonBodyBounded(c.req.raw);
+  if (result.ok) return { body: result.body };
+  if (result.error === "too-large") {
+    return { error: c.json({ error: "Request body too large" }, 413) };
+  }
+  return { error: c.json({ error: "Invalid JSON" }, 400) };
+}
 
 export function createMcpRoutes(manager: McpManager): Hono {
   const app = new Hono();
@@ -32,12 +50,8 @@ export function createMcpRoutes(manager: McpManager): Hono {
 
   // Create / upsert
   app.post("/api/mcp/servers", async (c) => {
-    let body: unknown;
-    try {
-      body = await c.req.json();
-    } catch {
-      return c.json({ error: "Invalid JSON" }, 400);
-    }
+    const { error, body } = await readBody(c);
+    if (error) return error;
     const err = validateMcpServerConfig(body);
     if (err) return c.json({ error: err }, 400);
     const normalized = normalizeMcpServerConfig(body as McpServerConfig);
@@ -59,15 +73,11 @@ export function createMcpRoutes(manager: McpManager): Hono {
     return c.json(info);
   });
 
-  // Update (full replace)
+  // Update (full replace with secret preservation)
   app.put("/api/mcp/servers/:id", async (c) => {
     const id = c.req.param("id");
-    let body: unknown;
-    try {
-      body = await c.req.json();
-    } catch {
-      return c.json({ error: "Invalid JSON" }, 400);
-    }
+    const { error, body } = await readBody(c);
+    if (error) return error;
     const raw = body as Record<string, unknown>;
     // Ensure id matches route
     if (typeof raw.id === "string" && raw.id !== id) {
@@ -77,8 +87,12 @@ export function createMcpRoutes(manager: McpManager): Hono {
     const err = validateMcpServerConfig(withId);
     if (err) return c.json({ error: err }, 400);
     const normalized = normalizeMcpServerConfig(withId as McpServerConfig);
+    // Preserve-on-update: masked echoes of stored headers/env must not
+    // overwrite the stored raw values when an edit only changed other fields.
+    const stored = await manager.getConfig(id);
+    const toSave = stored ? mergePreservedSecrets(stored, normalized) : normalized;
     try {
-      const info = await manager.upsert(normalized);
+      const info = await manager.upsert(toSave);
       return c.json(info);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -112,8 +126,52 @@ export function createMcpRoutes(manager: McpManager): Hono {
       return c.json(info);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
+      if (e instanceof McpApprovalRequiredError) {
+        return c.json({ error: msg, approvalRequired: true }, 403);
+      }
       return c.json({ error: msg }, 502);
     }
+  });
+
+  // Explicitly approve a STDIO server so it may spawn its local program.
+  // This is the ONLY way an unapproved STDIO server can transition out of
+  // `needs-approval`; the approval is recorded separately from the config.
+  app.post("/api/mcp/servers/:id/approve", async (c) => {
+    const id = c.req.param("id");
+    const exists = await manager.getConfig(id);
+    if (!exists) return c.json({ error: `MCP server "${id}" not found` }, 404);
+    try {
+      const info = await manager.approveServer(id);
+      return c.json(info);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      return c.json({ error: msg }, 400);
+    }
+  });
+
+  // Revoke a STDIO server's approval: stops it if running and returns it to
+  // `needs-approval`. Distinct from DELETE — the config stays, only trust is
+  // withdrawn, so it can be re-approved later without re-entering it.
+  app.post("/api/mcp/servers/:id/revoke-approval", async (c) => {
+    const id = c.req.param("id");
+    const exists = await manager.getConfig(id);
+    if (!exists) return c.json({ error: `MCP server "${id}" not found` }, 404);
+    try {
+      const info = await manager.revokeApproval(id);
+      return c.json(info);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      return c.json({ error: msg }, 400);
+    }
+  });
+
+  // Per-server trust & policy audit history.
+  app.get("/api/mcp/servers/:id/audit", async (c) => {
+    const id = c.req.param("id");
+    const exists = await manager.getConfig(id);
+    if (!exists) return c.json({ error: `MCP server "${id}" not found` }, 404);
+    const events = await manager.audit(id);
+    return c.json({ serverId: id, events });
   });
 
   // Disconnect
@@ -135,6 +193,10 @@ export function createMcpRoutes(manager: McpManager): Hono {
       return c.json({ serverId: id, tools });
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
+      // Auto-connect in listTools can hit the STDIO approval gate.
+      if (e instanceof McpApprovalRequiredError) {
+        return c.json({ error: msg, approvalRequired: true }, 403);
+      }
       const status = /not connected|not found/i.test(msg) ? 503 : 502;
       return c.json({ error: msg }, status);
     }
@@ -145,12 +207,8 @@ export function createMcpRoutes(manager: McpManager): Hono {
     const id = c.req.param("id");
     const exists = await manager.getConfig(id);
     if (!exists) return c.json({ error: `MCP server "${id}" not found` }, 404);
-    let body: unknown;
-    try {
-      body = await c.req.json();
-    } catch {
-      return c.json({ error: "Invalid JSON" }, 400);
-    }
+    const { error, body } = await readBody(c);
+    if (error) return error;
     const b = body as Record<string, unknown>;
     if (typeof b.name !== "string" || !b.name.trim()) return c.json({ error: "name is required" }, 400);
     const args = (b.arguments ?? b.args ?? {}) as Record<string, unknown>;

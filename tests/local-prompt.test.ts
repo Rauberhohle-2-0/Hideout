@@ -112,7 +112,7 @@ function makeApp(): { app: ReturnType<typeof createApp>; local: RecordingProvide
   registry.register(remote);
   // includeExa: false — no MCP network in these tests; toolsEnabled: false
   // below also keeps the search heuristic from running.
-  const app = createApp({ registry, mcpStore: new MemoryMcpStore(), includeExa: false });
+  const app = createApp({ requireCapability: false, registry, mcpStore: new MemoryMcpStore(), includeExa: false });
   return { app, local, remote };
 }
 

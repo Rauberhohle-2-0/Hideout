@@ -28,6 +28,11 @@ export type ChatSession = {
   updatedAt: number;
   /** Whether MCP/tools are enabled for this chat. Defaults to `true` (new chats always enabled). */
   toolsEnabled?: boolean;
+  /**
+   * Privacy mode: never written to localStorage, only lives in memory until
+   * the window closes. Set at creation time and immutable afterwards.
+   */
+  ephemeral?: boolean;
 };
 
 /** Lightweight projection for list rendering / search without full messages. */

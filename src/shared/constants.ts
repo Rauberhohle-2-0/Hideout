@@ -22,3 +22,11 @@ export const CHAT_ROUTE = "/api/chat";
 
 /** The element htmx swaps server fragments into. */
 export const SWAP_TARGET = "#greeting";
+
+/**
+ * Request header carrying the per-process sidecar capability token. The
+ * header (never a query param) is injected only into the trusted renderer
+ * path — in dev, the Vite proxy (see vite.config.ts) adds it; the packaged
+ * runtime must do the same. Every sidecar route requires it.
+ */
+export const CAPABILITY_HEADER = "x-hideout-capability-token";

@@ -10,9 +10,12 @@
 import { sessionStore, type ChatSession } from './sessions.ts'
 import { hydrateIcons } from './icons.ts'
 
-// Shared handles used by the toggle and the resize wiring.
-const sidebar = document.querySelector<HTMLElement>('#sidebar')
-const sidebarToggles = Array.from(document.querySelectorAll<HTMLButtonElement>('[data-sidebar-toggle]'))
+// Shared handles used by the toggle and the resize wiring. Re-bound at wire
+// time (see `wireSidebar`) so a re-boot against a fresh document — e.g. the
+// test harness booting several files in one shared module registry — picks
+// up the current DOM instead of the first boot's detached tree.
+let sidebar: HTMLElement | null = null
+let sidebarToggles: HTMLButtonElement[] = []
 
 /**
  * Collapse/enlarge the left sidebar and keep its toggle in sync.
@@ -21,21 +24,22 @@ const sidebarToggles = Array.from(document.querySelectorAll<HTMLButtonElement>('
  * in both states, so the window controls are always reachable.
  */
 function setSidebarCollapsed(collapsed: boolean, animating: boolean = true): void {
-  if (!sidebar) return
+  const sb = sidebar
+  if (!sb) return
   if (collapsed) {
     // Hide the toggle the moment collapsing starts, before the width animation
     // squishes it; the width transition then finishes the collapse.
-    sidebar.classList.add('collapsing')
-    sidebar.classList.add('collapsed')
+    sb.classList.add('collapsing')
+    sb.classList.add('collapsed')
   } else if (animating) {
     // Keep it hidden while the sidebar grows back; a width transitionend
     // (below) reveals it again.
-    sidebar.classList.add('collapsing')
-    sidebar.classList.remove('collapsed')
+    sb.classList.add('collapsing')
+    sb.classList.remove('collapsed')
   } else {
     // No animation (e.g. a manual resize drag): reveal straight away.
-    sidebar.classList.remove('collapsing')
-    sidebar.classList.remove('collapsed')
+    sb.classList.remove('collapsing')
+    sb.classList.remove('collapsed')
   }
   for (const toggle of sidebarToggles) {
     toggle.setAttribute('aria-expanded', String(!collapsed))
@@ -49,10 +53,11 @@ function setSidebarCollapsed(collapsed: boolean, animating: boolean = true): voi
 }
 
 function wireSidebarToggle(): void {
-  if (!sidebar) return
+  const sb = sidebar
+  if (!sb) return
   for (const toggle of sidebarToggles) {
     toggle.addEventListener('click', () => {
-      setSidebarCollapsed(!sidebar.classList.contains('collapsed'))
+      setSidebarCollapsed(!sb.classList.contains('collapsed'))
     })
   }
 }
@@ -67,11 +72,12 @@ function wireSidebarToggle(): void {
  */
 function wireSidebarResize(): void {
   const handle = document.querySelector<HTMLElement>('#sidebar-resizer')
-  if (!sidebar || !handle) return
+  const sb = sidebar
+  if (!sb || !handle) return
 
   const minWidth = 160
   handle.addEventListener('pointerdown', (event) => {
-    sidebar.classList.add('dragging')
+    sb.classList.add('dragging')
     setSidebarCollapsed(false, false) // a drag resizes it open, no hiding
     handle.setPointerCapture(event.pointerId)
     event.preventDefault()
@@ -81,10 +87,10 @@ function wireSidebarResize(): void {
     if (!handle.hasPointerCapture(event.pointerId)) return
     const maxWidth = Math.max(minWidth, Math.floor(window.innerWidth * 0.5))
     const width = Math.min(maxWidth, Math.max(minWidth, event.clientX))
-    sidebar.style.width = `${width}px`
+    sb.style.width = `${width}px`
   })
 
-  const endDrag = () => sidebar.classList.remove('dragging')
+  const endDrag = () => sb.classList.remove('dragging')
   handle.addEventListener('pointerup', endDrag)
   handle.addEventListener('pointercancel', endDrag)
 }
@@ -336,12 +342,15 @@ function wireSidebarSessions(): void {
  * the session lists. Call once at startup, after the title bar is wired.
  */
 export function wireSidebar(): void {
-  if (sidebar) {
+  sidebar = document.querySelector<HTMLElement>('#sidebar')
+  sidebarToggles = Array.from(document.querySelectorAll<HTMLButtonElement>('[data-sidebar-toggle]'))
+  const sb = sidebar
+  if (sb) {
     wireSidebarToggle()
 
     // Reveal the sidebar's toggle once the collapse/expand width animation ends.
-    sidebar.addEventListener('transitionend', (event) => {
-      if (event.propertyName === 'width') sidebar.classList.remove('collapsing')
+    sb.addEventListener('transitionend', (event) => {
+      if (event.propertyName === 'width') sb.classList.remove('collapsing')
     })
   }
 

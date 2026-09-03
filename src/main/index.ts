@@ -13,12 +13,19 @@
 import { spawn } from "node:child_process";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createApp } from "./server.ts";
+import { createApp, generateCapabilityToken } from "./server.ts";
 
 const root = fileURLToPath(new URL("../..", import.meta.url));
 const honoPort = Number(process.env.HONO_PORT ?? 8787);
 
-const app = createApp();
+// Per-process sidecar capability token. The renderer never sees it: it is
+// published to the child `vantail dev` process via the environment, and the
+// Vite proxy (vite.config.ts) adds the header to /api, /greet and /tip
+// requests only. The packaged runtime's sidecar launcher must do the same.
+const capabilityToken = process.env.HIDEOUT_CAPABILITY_TOKEN ?? generateCapabilityToken();
+process.env.HIDEOUT_CAPABILITY_TOKEN = capabilityToken;
+
+const app = createApp({ capabilityToken });
 const server = Bun.serve({
   hostname: "127.0.0.1",
   port: honoPort,

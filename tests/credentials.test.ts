@@ -51,7 +51,7 @@ describe("secure credential storage", () => {
     const registry = new ProviderRegistry();
     registry.register(new OllamaProvider({ fetchImpl: mockFetchFor({}) }));
     registry.register(new OpenAIProvider({ credentialStore: store, fetchImpl: mockFetchFor({ openai: ["gpt-4o"] }) }));
-    const app = createApp({ registry, credentialStore: store, cloudFetch: mockFetchFor({ openai: ["gpt-4o"] }) });
+    const app = createApp({ requireCapability: false, registry, credentialStore: store, cloudFetch: mockFetchFor({ openai: ["gpt-4o"] }) });
 
     const raw = "sk-test-openai-1234567890abcd";
     const put = await app.request("/api/credentials/openai", {
@@ -84,7 +84,7 @@ describe("secure credential storage", () => {
     registry.register(new OllamaProvider({ fetchImpl: mockFetchFor({}) }));
     registry.register(new OpenAIProvider({ credentialStore: store, fetchImpl: mockFetchFor({}) }));
     registry.register(new AnthropicProvider({ credentialStore: store, fetchImpl: mockFetchFor({}) }));
-    const app = createApp({ registry, credentialStore: store });
+    const app = createApp({ requireCapability: false, registry, credentialStore: store });
 
     const res = await app.request("/api/credentials");
     expect(res.status).toBe(200);
@@ -103,7 +103,7 @@ describe("secure credential storage", () => {
     registry.register(new OllamaProvider({ fetchImpl: mockFetchFor({}) }));
     const openai = new OpenAIProvider({ credentialStore: store, fetchImpl: mockFetchFor({ openai: ["gpt-4o"] }) });
     registry.register(openai);
-    const app = createApp({ registry, credentialStore: store, cloudFetch: mockFetchFor({ openai: ["gpt-4o"] }) });
+    const app = createApp({ requireCapability: false, registry, credentialStore: store, cloudFetch: mockFetchFor({ openai: ["gpt-4o"] }) });
 
     await app.request("/api/credentials/openai", {
       method: "PUT",
@@ -129,7 +129,7 @@ describe("secure credential storage", () => {
     const registry = new ProviderRegistry();
     registry.register(new OllamaProvider({ fetchImpl: mockFetchFor({}) }));
     registry.register(new AnthropicProvider({ credentialStore: store, fetchImpl: mockFetchFor({}) }));
-    const app = createApp({ registry, credentialStore: store });
+    const app = createApp({ requireCapability: false, registry, credentialStore: store });
 
     const res = await app.request("/api/credentials");
     expect(res.status).toBe(200);
@@ -155,7 +155,7 @@ describe("secure credential storage", () => {
     const registry = new ProviderRegistry();
     registry.register(new OllamaProvider({ fetchImpl: mockFetchFor({}) }));
     registry.register(new AnthropicProvider({ credentialStore: store, fetchImpl: mockFetchFor({ anthropic: ["claude-3"] }) }));
-    const app = createApp({ registry, credentialStore: store });
+    const app = createApp({ requireCapability: false, registry, credentialStore: store });
 
     const raw = "sk-ant-canonical-test-1234567890abcd";
     const put = await app.request("/api/credentials/anthropic", {
@@ -177,7 +177,7 @@ describe("secure credential storage", () => {
   test("legacy claude provider id is rejected", async () => {
     const store = new MemoryCredentialStore();
     await store.set("claude", "sk-ant-legacy-get-1234567890abcd");
-    const app = createApp({ credentialStore: store });
+    const app = createApp({ requireCapability: false, credentialStore: store });
 
     const res = await app.request("/api/credentials/claude");
     expect(res.status).toBe(400);
@@ -195,7 +195,7 @@ describe("secure credential storage", () => {
 
   test("invalid apiKey is rejected", async () => {
     const store = new MemoryCredentialStore();
-    const app = createApp({ credentialStore: store });
+    const app = createApp({ requireCapability: false, credentialStore: store });
     const empty = await app.request("/api/credentials/openai", {
       method: "PUT",
       headers: { "content-type": "application/json" },
@@ -216,7 +216,7 @@ describe("secure credential storage", () => {
     const registry = new ProviderRegistry();
     registry.register(new OllamaProvider({ fetchImpl: mockFetchFor({}) }));
     registry.register(new OpenAIProvider({ credentialStore: store, fetchImpl: mockFetchFor({ openai: ["gpt-4o"] }) }));
-    const app = createApp({ registry, credentialStore: store });
+    const app = createApp({ requireCapability: false, registry, credentialStore: store });
 
     const res = await app.request("/api/providers");
     expect(res.status).toBe(200);

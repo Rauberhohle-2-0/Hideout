@@ -25,6 +25,18 @@ export type ChatMessage = {
   sources?: Source[];
 };
 
+/** Maximum number of messages accepted in one chat request. */
+export const CHAT_MAX_MESSAGES = 200;
+/** Maximum length of a single message's `content` (characters). */
+export const CHAT_MAX_MESSAGE_LENGTH = 1_000_000;
+/** Maximum length of `providerId`. */
+export const CHAT_MAX_PROVIDER_ID_LENGTH = 64;
+/** Maximum length of `model`. */
+export const CHAT_MAX_MODEL_LENGTH = 256;
+
+/** Control characters never belong in ids/model strings. */
+const CONTROL_RE = /[\u0000-\u001f\u007f]/;
+
 export type ChatRequest = {
   /** Provider id, e.g. `ollama`, `openai`, `anthropic`. */
   providerId: string;
@@ -124,13 +136,21 @@ export function validateChatRequest(body: unknown): string | null {
   if (!body || typeof body !== "object") return "Invalid body";
   const b = body as Record<string, unknown>;
   if (typeof b.providerId !== "string" || !b.providerId.trim()) return "providerId is required";
+  if (b.providerId.length > CHAT_MAX_PROVIDER_ID_LENGTH) return `providerId must be at most ${CHAT_MAX_PROVIDER_ID_LENGTH} characters`;
+  if (CONTROL_RE.test(b.providerId)) return "providerId contains control characters";
   if (typeof b.model !== "string" || !b.model.trim()) return "model is required";
+  if (b.model.length > CHAT_MAX_MODEL_LENGTH) return `model must be at most ${CHAT_MAX_MODEL_LENGTH} characters`;
+  if (CONTROL_RE.test(b.model)) return "model contains control characters";
   if (!Array.isArray(b.messages) || b.messages.length === 0) return "messages is required";
+  if (b.messages.length > CHAT_MAX_MESSAGES) return `messages must be at most ${CHAT_MAX_MESSAGES}`;
   for (const m of b.messages) {
     if (!m || typeof m !== "object") return "Invalid message";
     const msg = m as Record<string, unknown>;
     if (msg.role !== "user" && msg.role !== "assistant" && msg.role !== "system") return "Invalid message role";
     if (typeof msg.content !== "string") return "Invalid message content";
+    if ((msg.content as string).length > CHAT_MAX_MESSAGE_LENGTH) {
+      return `message content must be at most ${CHAT_MAX_MESSAGE_LENGTH} characters`;
+    }
     // Allow empty assistant placeholders when streaming, but user messages must have content
     if (msg.role === "user" && !(msg.content as string).trim()) return "User message cannot be empty";
   }

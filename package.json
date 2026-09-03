@@ -8,13 +8,14 @@
     "start": "bun run src/main/index.ts",
     "build": "vantail build",
     "typecheck": "tsc --noEmit",
-    "test": "bun test tests/"
+    "test": "bun test --isolate tests/"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",
     "@types/bun": "^1.4.0",
     "@vantail/cli": "^0.1.21",
     "@vantail/vite": "^0.1.21",
+    "happy-dom": "^20.13.2",
     "tailwindcss": "^4.3.3",
     "typescript": "^7.0.2",
     "vite": "^8.2.2"

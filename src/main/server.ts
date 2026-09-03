@@ -8,6 +8,7 @@
 import { Hono } from "hono";
 import { escape } from "../shared/escape.ts";
 import {
+  CAPABILITY_HEADER,
   CHAT_ROUTE,
   DEFAULT_NAME,
   GREET_ROUTE,
@@ -16,6 +17,7 @@ import {
   PROVIDERS_ROUTE,
   TIP_ROUTE,
 } from "../shared/constants.ts";
+import { readJsonBodyBounded } from "../shared/http-body.ts";
 import { stripSourcesFromContent, validateChatRequest, type Source } from "../shared/chat.ts";
 import { isAllowedHttpUrl } from "../shared/safe-url.ts";
 import { greeting, tip } from "./views.ts";
@@ -35,6 +37,8 @@ import { McpManager } from "../mcp/manager.ts";
 import { createMcpRoutes } from "../mcp/routes.ts";
 import type { McpStore } from "../mcp/store.ts";
 import { MemoryMcpStore, createDefaultMcpStore } from "../mcp/store.ts";
+import { MemoryTrustStore, createDefaultTrustStore } from "../mcp/trust-store.ts";
+import { MemoryAuditStore, createDefaultAuditStore } from "../mcp/audit-store.ts";
 
 /** Extract http(s) URLs from free text. Deduped, capped. */
 function extractUrls(text: string): string[] {
@@ -405,6 +409,59 @@ export async function collectWebSearch(
   }
 }
 
+/** Maximum concurrent chat requests (streaming + non-streaming). */
+export const MAX_ACTIVE_CHATS = 8;
+/** Hard timeout for a non-streaming chat round-trip. */
+export const CHAT_TIMEOUT_MS = 240_000;
+/** Cap on total bytes streamed for one chat answer (SSE deltas). */
+export const CHAT_MAX_STREAM_BYTES = 32 * 1024 * 1024;
+/** Non-streaming replies longer than this are truncated before sending. */
+export const CHAT_MAX_REPLY_CHARS = 16 * 1024 * 1024;
+
+/**
+ * Abort signal bound to an optional parent (client disconnect) plus a hard
+ * timer. `timedOut()` distinguishes the two so error mapping can differ.
+ */
+function withTimeoutSignal(
+  parent: AbortSignal | undefined,
+  ms: number,
+): { signal: AbortSignal; timedOut: () => boolean; cancel: () => void } {
+  const controller = new AbortController();
+  let didTimeOut = false;
+  const onAbort = (): void => controller.abort();
+  if (parent) {
+    if (parent.aborted) controller.abort();
+    else parent.addEventListener("abort", onAbort, { once: true });
+  }
+  const timer = setTimeout(() => {
+    didTimeOut = true;
+    controller.abort();
+  }, ms);
+  return {
+    signal: controller.signal,
+    timedOut: () => didTimeOut,
+    cancel: () => {
+      clearTimeout(timer);
+      parent?.removeEventListener("abort", onAbort);
+    },
+  };
+}
+
+/** Random per-process capability token (64 hex chars). */
+export function generateCapabilityToken(): string {
+  const bytes = new Uint8Array(32);
+  if (typeof crypto !== "undefined" && typeof crypto.getRandomValues === "function") {
+    crypto.getRandomValues(bytes);
+  } else {
+    // Extremely unlikely fallback for environments without Web Crypto.
+    for (let i = 0; i < bytes.length; i++) bytes[i] = Math.floor(Math.random() * 256);
+  }
+  return [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/** The Hono app plus the capability token the trusted channel must send. */
+export type HideoutApp = Hono & { capabilityToken?: string };
+
 export type CreateAppOptions = {
   /** Override the registry (useful for tests). */
   registry?: ProviderRegistry;
@@ -426,10 +483,77 @@ export type CreateAppOptions = {
   mcpFetch?: typeof fetch;
   /** Include the code-owned built-in EXA server (default true). */
   includeExa?: boolean;
+  /**
+   * Per-process capability token required by every route. When omitted a
+   * fresh random token is generated and exposed on the returned app as
+   * `capabilityToken`. Production must inject it into the trusted renderer
+   * path (dev: the Vite proxy — see vite.config.ts / src/main/index.ts).
+   */
+  capabilityToken?: string;
+  /**
+   * Test-only escape hatch: set `false` to skip the token check while the
+   * Host/Origin rules stay active. Production must never set this.
+   */
+  requireCapability?: boolean;
 };
 
+/** Best-effort hostname from a Host header, an Origin, or a request URL. */
+function hostnameOf(raw: string): string | null {
+  try {
+    const candidate = raw.includes("://") ? raw : `http://${raw}`;
+    return new URL(candidate).hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  } catch {
+    return null;
+  }
+}
+
+/** Only loopback hostnames may reach the sidecar. */
+function isLoopbackHostname(host: string): boolean {
+  return host === "localhost" || host.startsWith("127.") || host === "::1" || host === "[::1]";
+}
+
 export function createApp(options: CreateAppOptions = {}) {
-  const app = new Hono();
+  const app = new Hono() as HideoutApp;
+
+  // ── Capability token + request-origin gate ────────────────────────────
+  // Loopback binding alone is NOT authorization: any local process (or a
+  // DNS-rebinding web page) can reach 127.0.0.1. Every request must present
+  // the per-process capability token, and defense in depth additionally
+  // rejects non-loopback Host headers (rebinding) and cross-origin browser
+  // requests (Origin header whose host is not loopback). The token is
+  // injected only into the trusted renderer path — in dev, the Vite proxy
+  // (see vite.config.ts and src/main/index.ts).
+  const requireCapability = options.requireCapability ?? true;
+  const capabilityToken =
+    options.capabilityToken ?? (requireCapability ? generateCapabilityToken() : undefined);
+  app.capabilityToken = capabilityToken;
+  app.use("*", async (c, next) => {
+    c.header("Cache-Control", "no-store");
+    // Host gate: the sidecar must only ever be addressed as loopback.
+    const host = hostnameOf(c.req.header("host") ?? c.req.url);
+    if (!host || !isLoopbackHostname(host)) {
+      return c.json({ error: "Forbidden" }, 403);
+    }
+    // Origin gate: browser-originated requests (cross-origin forms/fetch
+    // carry Origin; sandboxed iframes send "null") must come from a
+    // loopback-hosted page. Non-browser local clients send no Origin and are
+    // still stopped by the token below.
+    const origin = c.req.header("origin");
+    if (origin !== undefined) {
+      const originHost = hostnameOf(origin);
+      if (origin === "null" || !originHost || !isLoopbackHostname(originHost)) {
+        return c.json({ error: "Forbidden origin" }, 403);
+      }
+    }
+    // Capability token: the actual authorization decision.
+    if (requireCapability) {
+      const provided = c.req.header(CAPABILITY_HEADER);
+      if (!capabilityToken || provided !== capabilityToken) {
+        return c.json({ error: "Unauthorized" }, 401);
+      }
+    }
+    await next();
+  });
 
   // Secure credential store — OS keychain in production, memory in tests/CI.
   // The same instance is shared with OpenAI/Anthropic providers so `hasKey`
@@ -517,6 +641,23 @@ export function createApp(options: CreateAppOptions = {}) {
             return new MemoryMcpStore();
           }
         })(),
+      // STDIO approvals persist separately from server configs; a memory
+      // store keeps tests isolated, the file store survives restarts.
+      trustStore: (() => {
+        try {
+          return createDefaultTrustStore();
+        } catch {
+          return new MemoryTrustStore();
+        }
+      })(),
+      // Trust & policy change history, same persistence scheme as above.
+      auditStore: (() => {
+        try {
+          return createDefaultAuditStore();
+        } catch {
+          return new MemoryAuditStore();
+        }
+      })(),
       fetchImpl: options.mcpFetch ?? (globalThis.fetch as typeof fetch),
       includeExa: options.includeExa ?? true,
     });
@@ -630,13 +771,13 @@ export function createApp(options: CreateAppOptions = {}) {
     if (!isValidProviderId(providerId)) {
       return c.json({ error: "Unknown provider" }, 400);
     }
-    let body: unknown;
-    try {
-      body = await c.req.json();
-    } catch {
-      return c.json({ error: "Invalid JSON" }, 400);
+    const parsed = await readJsonBodyBounded(c.req.raw);
+    if (!parsed.ok) {
+      return parsed.error === "too-large"
+        ? c.json({ error: "Request body too large" }, 413)
+        : c.json({ error: "Invalid JSON" }, 400);
     }
-    const apiKey = (body as { apiKey?: unknown })?.apiKey;
+    const apiKey = (parsed.body as { apiKey?: unknown })?.apiKey;
     if (typeof apiKey !== "string" || apiKey.trim().length === 0) {
       return c.json({ error: "apiKey is required" }, 400);
     }
@@ -670,6 +811,17 @@ export function createApp(options: CreateAppOptions = {}) {
   });
 
   // ── Chat — proxy to the selected provider/model ─────────────────────
+  // Chat concurrency: bound simultaneous provider requests/streams so many
+  // parallel sessions cannot pile up unbounded work in the sidecar.
+  let activeChats = 0;
+  const tryAcquireChatSlot = (): boolean => {
+    if (activeChats >= MAX_ACTIVE_CHATS) return false;
+    activeChats += 1;
+    return true;
+  };
+  const releaseChatSlot = (): void => {
+    activeChats = Math.max(0, activeChats - 1);
+  };
   // The renderer posts `{ providerId, model, messages, stream? }`.
   // Non-streaming returns `{ content, model, providerId, finishReason }`.
   // Streaming returns SSE `text/event-stream` with `data: {"delta":"..."}` lines
@@ -677,12 +829,13 @@ export function createApp(options: CreateAppOptions = {}) {
   // fetches them from `credentialStore` at call time.
 
   app.post(CHAT_ROUTE, async (c) => {
-    let body: unknown;
-    try {
-      body = await c.req.json();
-    } catch {
-      return c.json({ error: "Invalid JSON" }, 400);
+    const parsed = await readJsonBodyBounded(c.req.raw);
+    if (!parsed.ok) {
+      return parsed.error === "too-large"
+        ? c.json({ error: "Request body too large" }, 413)
+        : c.json({ error: "Invalid JSON" }, 400);
     }
+    const body = parsed.body;
     const err = validateChatRequest(body);
     if (err) return c.json({ error: err }, 400);
     const { providerId, model, messages, stream, toolsEnabled } = body as {
@@ -724,6 +877,10 @@ export function createApp(options: CreateAppOptions = {}) {
       const chatToolsEnabled = toolsEnabled !== false;
       const lastUser = [...requestMessages].reverse().find((m) => m.role === "user");
       const queryForSearch = lastUser?.content ?? "";
+      if (!tryAcquireChatSlot()) {
+        return c.json({ error: "Too many concurrent chats — wait for one to finish." }, 429);
+      }
+      let streamBytes = 0;
       const readable = new ReadableStream<Uint8Array>({
         async start(controller) {
           try {
@@ -756,6 +913,12 @@ export function createApp(options: CreateAppOptions = {}) {
                 })();
             for await (const chunk of iterator) {
               if (c.req.raw.signal.aborted) break;
+              streamBytes += chunk.text.length;
+              if (streamBytes > CHAT_MAX_STREAM_BYTES) {
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: "Response exceeded the size limit" })}\n\n`));
+                controller.close();
+                return;
+              }
               const payload =
                 chunk.type === "thinking" ? { thinking: chunk.text } : { delta: chunk.text };
               const line = `data: ${JSON.stringify(payload)}\n\n`;
@@ -774,6 +937,8 @@ export function createApp(options: CreateAppOptions = {}) {
             try {
               controller.close();
             } catch {}
+          } finally {
+            releaseChatSlot();
           }
         },
         cancel() {
@@ -790,6 +955,12 @@ export function createApp(options: CreateAppOptions = {}) {
       });
     }
 
+    // Non-streaming: bounded by the chat slot, a hard timeout, and a reply
+    // size cap so one runaway model reply cannot wedge the sidecar.
+    if (!tryAcquireChatSlot()) {
+      return c.json({ error: "Too many concurrent chats — wait for one to finish." }, 429);
+    }
+    const timed = withTimeoutSignal(c.req.raw.signal, CHAT_TIMEOUT_MS);
     try {
       const chatToolsEnabled = toolsEnabled !== false;
       const lastUser = [...requestMessages].reverse().find((m) => m.role === "user");
@@ -798,7 +969,7 @@ export function createApp(options: CreateAppOptions = {}) {
       let groundedMessages = requestMessages;
       if (chatToolsEnabled && queryForSearch.trim() && shouldUseWebSearch(queryForSearch)) {
         try {
-          const collected = await collectWebSearch(mcpManager, queryForSearch, c.req.raw.signal);
+          const collected = await collectWebSearch(mcpManager, queryForSearch, timed.signal);
           if (collected.sources.length > 0) {
             sources = collected.sources;
             if (collected.context) groundedMessages = buildGroundedMessages(requestMessages, collected.context);
@@ -807,19 +978,29 @@ export function createApp(options: CreateAppOptions = {}) {
           // ignore
         }
       }
-      const result = await provider.chat({ model, messages: groundedMessages, signal: c.req.raw.signal, toolsEnabled: chatToolsEnabled });
+      const result = await provider.chat({ model, messages: groundedMessages, signal: timed.signal, toolsEnabled: chatToolsEnabled });
+      let content = stripSourcesFromContent(result.content);
+      if (content.length > CHAT_MAX_REPLY_CHARS) {
+        content = `${content.slice(0, CHAT_MAX_REPLY_CHARS)}…[truncated]`;
+      }
       return c.json({
-        content: stripSourcesFromContent(result.content),
+        content,
         model: result.model,
         providerId: result.providerId,
         finishReason: result.finishReason ?? null,
         ...(sources ? { sources } : {}),
       });
     } catch (e) {
+      if (timed.timedOut()) {
+        return c.json({ error: "Chat request timed out" }, 504);
+      }
       const msg = e instanceof Error ? e.message : String(e);
       // Map common auth errors to 502/401 for nicer UI handling
       const status = /not configured|api key|unauthorized|401/i.test(msg) ? 401 : 502;
       return c.json({ error: msg }, status);
+    } finally {
+      timed.cancel();
+      releaseChatSlot();
     }
   });
 

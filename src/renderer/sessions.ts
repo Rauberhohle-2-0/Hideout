@@ -40,6 +40,13 @@ class SessionStore {
   private readonly changeListeners = new Set<ChangeListener>();
   private readonly activeListeners = new Set<ActiveListener>();
   private searchQuery = "";
+  /**
+   * When true, newly created sessions are marked `ephemeral` and therefore
+   * never written to localStorage (see persist). Mirrors the app's
+   * "do not save chat history" privacy setting; existing saved chats are
+   * left untouched.
+   */
+  private ephemeralDefault = false;
 
   constructor() {
     this.load();
@@ -87,15 +94,24 @@ class SessionStore {
   }
 
   private persist(): void {
+    // Ephemeral (do-not-save) sessions never touch storage. Everything else
+    // keeps persisting, so previously saved history is unaffected by the
+    // privacy mode being on.
     try {
-      const arr = [...this.sessions.values()].sort(sortSessions);
+      const arr = [...this.sessions.values()]
+        .filter((s) => !s.ephemeral)
+        .sort(sortSessions);
       localStorage.setItem(SESSIONS_KEY, JSON.stringify(arr));
     } catch {
       // quota exceeded or no storage — best effort
     }
     try {
-      if (this.activeId) localStorage.setItem(ACTIVE_SESSION_KEY, this.activeId);
-      else localStorage.removeItem(ACTIVE_SESSION_KEY);
+      const active = this.activeId ? this.sessions.get(this.activeId) : null;
+      if (this.activeId && active && !active.ephemeral) {
+        localStorage.setItem(ACTIVE_SESSION_KEY, this.activeId);
+      } else {
+        localStorage.removeItem(ACTIVE_SESSION_KEY);
+      }
     } catch {}
   }
 
@@ -278,9 +294,10 @@ class SessionStore {
     this.emitChange(); // active row highlights
   }
 
-  create(title?: string, messages: ChatMessage[] = [], opts: { pinned?: boolean; toolsEnabled?: boolean } = {}): ChatSession {
+  create(title?: string, messages: ChatMessage[] = [], opts: { pinned?: boolean; toolsEnabled?: boolean; ephemeral?: boolean } = {}): ChatSession {
     const now = Date.now();
     const derived = title?.trim() || deriveTitle(messages);
+    const ephemeral = opts.ephemeral ?? this.ephemeralDefault;
     const session: ChatSession = {
       id: generateSessionId(),
       title: derived || "New chat",
@@ -289,6 +306,7 @@ class SessionStore {
       createdAt: now,
       updatedAt: now,
       toolsEnabled: opts.toolsEnabled ?? true,
+      ...(ephemeral ? { ephemeral: true } : {}),
     };
     this.sessions.set(session.id, session);
     this.activeId = session.id;
@@ -296,6 +314,20 @@ class SessionStore {
     this.emitChange();
     this.emitActive();
     return session;
+  }
+
+  /**
+   * Flip whether NEW sessions are ephemeral (privacy mode). Existing
+   * sessions keep whatever they were created as — an ephemeral chat stays
+   * in-memory only even after the mode is turned off.
+   */
+  setEphemeralDefault(on: boolean): void {
+    this.ephemeralDefault = on;
+  }
+
+  /** Whether a session was created under privacy mode (never saved). */
+  isEphemeral(id: string): boolean {
+    return this.sessions.get(id)?.ephemeral === true;
   }
 
   /** Ensure a session exists for the current turn; if none active, create one. */
@@ -426,6 +458,21 @@ class SessionStore {
     this.activeId = activeId && this.sessions.has(activeId) ? activeId : null;
     this.searchQuery = "";
     this.persist();
+    this.emitChange();
+    this.emitActive();
+  }
+
+  /**
+   * Re-read persisted state from the current localStorage (tests). The
+   * store singleton is constructed when the module first loads, so a
+   * shared-registry re-boot (bare `bun test` without --isolate) would
+   * otherwise keep the previous boot's sessions. Reloading mirrors a fresh
+   * construction: clears the search filter, picks up the seeded sessions
+   * and active id, and notifies listeners.
+   */
+  _reload(): void {
+    this.searchQuery = "";
+    this.load();
     this.emitChange();
     this.emitActive();
   }

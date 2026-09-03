@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { createApp } from "../src/main/server.ts";
 
 describe("Hono htmx app", () => {
-  const app = createApp();
+  const app = createApp({ requireCapability: false });
 
   test("GET /greet welcomes the named user", async () => {
     const res = await app.request("/greet?name=Ada");

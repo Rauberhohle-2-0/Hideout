@@ -16,6 +16,8 @@ import { initTheme, wireThemeToggle } from './theme.ts'
 import { wireComposer, wireToolsToggle } from './composer.ts'
 import { wireSettings } from './settings-mcp.ts'
 import { wireCredentials } from './credentials-panel.ts'
+import { wirePrivacyPanel } from './privacy-panel.ts'
+import { applyStoredEphemeralMode } from './privacy.ts'
 import { wireChat } from './chat-controller.ts'
 
 export function bootstrap(): void {
@@ -23,6 +25,10 @@ export function bootstrap(): void {
   // placeholder for its SVG, keeping the element's own class and data-*
   // attributes (e.g. `data-theme-icon`, `hidden`).
   hydrateIcons()
+
+  // Privacy mode must apply before any session is created or restored so
+  // chats started under "do not save chat history" never reach storage.
+  applyStoredEphemeralMode()
 
   // Custom title bar: dragging, traffic lights, search, new chat, models.
   wireTitleBar()
@@ -39,9 +45,10 @@ export function bootstrap(): void {
   wireComposer()
   wireToolsToggle()
 
-  // Settings dialog (MCP servers + provider API keys).
+  // Settings dialog (MCP servers, provider API keys, chat-history privacy).
   wireSettings()
   wireCredentials()
+  wirePrivacyPanel()
 
   // Chat thread last — it dispatches the initial session restore event.
   wireChat()

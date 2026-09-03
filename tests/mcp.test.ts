@@ -115,7 +115,7 @@ describe("MCP shared validation — transport separation", () => {
 describe("MCP HTTP routes — CRUD + transport separation", () => {
   test("GET /api/mcp/servers includes the built-in EXA server without persisting it", async () => {
     const store = new MemoryMcpStore();
-    const app = createApp({ mcpStore: store });
+    const app = createApp({ requireCapability: false, mcpStore: store });
     const res = await app.request("/api/mcp/servers");
     expect(res.status).toBe(200);
     const body = (await res.json()) as { servers: McpServerInfo[] };
@@ -130,7 +130,7 @@ describe("MCP HTTP routes — CRUD + transport separation", () => {
 
   test("built-in EXA cannot be created, modified or deleted (read-only)", async () => {
     const store = new MemoryMcpStore();
-    const app = createApp({ mcpStore: store }); // includeExa defaults to true
+    const app = createApp({ requireCapability: false, mcpStore: store }); // includeExa defaults to true
 
     const post = await app.request("/api/mcp/servers", {
       method: "POST",
@@ -159,7 +159,7 @@ describe("MCP HTTP routes — CRUD + transport separation", () => {
 
   test("user servers coexist with the built-in EXA server", async () => {
     const store = new MemoryMcpStore();
-    const app = createApp({ mcpStore: store });
+    const app = createApp({ requireCapability: false, mcpStore: store });
     const custom: McpServerConfig = { id: "my-server", name: "My Server", transport: "http", url: "https://example.com/mcp" };
     const res = await app.request("/api/mcp/servers", {
       method: "POST",
@@ -177,7 +177,7 @@ describe("MCP HTTP routes — CRUD + transport separation", () => {
 
   test("POST stdio server succeeds, POST http with command fails", async () => {
     const store = new MemoryMcpStore();
-    const app = createApp({ mcpStore: store, includeExa: false });
+    const app = createApp({ requireCapability: false, mcpStore: store, includeExa: false });
 
     const stdioOk: McpServerConfig = {
       id: "fs",
@@ -216,7 +216,7 @@ describe("MCP HTTP routes — CRUD + transport separation", () => {
 
   test("POST http server uses headers + timeoutSeconds, not env", async () => {
     const store = new MemoryMcpStore();
-    const app = createApp({ mcpStore: store, includeExa: false });
+    const app = createApp({ requireCapability: false, mcpStore: store, includeExa: false });
 
     const httpCfg: McpServerConfig = {
       id: "my-http",
@@ -233,13 +233,18 @@ describe("MCP HTTP routes — CRUD + transport separation", () => {
     });
     expect(res.status).toBe(201);
     const body = (await res.json()) as McpServerConfig & { headers: Record<string, string>; timeout: number };
-    expect(body.headers.Authorization).toBe("Bearer token123");
+    // Secrets are masked in API responses — raw values stay in the store only.
+    expect(body.headers.Authorization).toBe("••••n123");
+    expect(body.headers["X-Custom"]).toBe("value");
     expect(body.timeout).toBe(45);
+    const persisted = (await store.list())[0] as McpServerConfig & { headers: Record<string, string> };
+    expect(persisted.headers.Authorization).toBe("Bearer token123");
+    expect(JSON.stringify(body)).not.toContain("Bearer token123");
   });
 
   test("PUT rejects transport mismatch, DELETE removes", async () => {
     const store = new MemoryMcpStore();
-    const app = createApp({ mcpStore: store, includeExa: false });
+    const app = createApp({ requireCapability: false, mcpStore: store, includeExa: false });
 
     const httpCfg: McpServerConfig = { id: "to-update", name: "To Update", transport: "http", url: "https://example.com/mcp" };
     await app.request("/api/mcp/servers", {
@@ -274,8 +279,15 @@ describe("MCP HTTP routes — CRUD + transport separation", () => {
 
   test("connect + tools + callTool via http fallback (mock fetch)", async () => {
     const store = new MemoryMcpStore();
-    const manager = new McpManager({ store, fetchImpl: mockMcpFetchSuccess(), includeExa: false });
-    const app = createApp({ mcpManager: manager, mcpStore: store, mcpFetch: mockMcpFetchSuccess() });
+    const manager = new McpManager({
+      store,
+      fetchImpl: mockMcpFetchSuccess(),
+      includeExa: false,
+      // Offline stub: resolve the public hostname to a public IP so the SSRF
+      // guard's DNS check never touches the network in tests.
+      resolveHost: async () => ["93.184.216.34"],
+    });
+    const app = createApp({ requireCapability: false, mcpManager: manager, mcpStore: store, mcpFetch: mockMcpFetchSuccess() });
 
     const httpCfg: McpServerConfig = { id: "exa", name: "Exa", transport: "http", url: "https://mcp.exa.ai/mcp" };
     await app.request("/api/mcp/servers", {
@@ -307,7 +319,7 @@ describe("MCP HTTP routes — CRUD + transport separation", () => {
 
   test("SSE transport also uses url/headers/timeout, distinct from HTTP", async () => {
     const store = new MemoryMcpStore();
-    const app = createApp({ mcpStore: store, includeExa: false });
+    const app = createApp({ requireCapability: false, mcpStore: store, includeExa: false });
     const sseCfg: McpServerConfig = {
       id: "sse-server",
       name: "SSE Server",

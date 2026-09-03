@@ -10,10 +10,10 @@
  * After a save the server is reconnected so the list reflects a real status
  * instead of a stale "disconnected".
  */
-import { connectMcpServer, createMcpServer, deleteMcpServer, listMcpServers, updateMcpServer } from './mcp.ts'
+import { approveMcpServer, connectMcpServer, createMcpServer, deleteMcpServer, getMcpServerAudit, listMcpServers, revokeMcpApproval, updateMcpServer } from './mcp.ts'
 import { kvToObject, slugifyServerId } from './settings.ts'
 import { validateMcpServerConfig } from '../shared/mcp.ts'
-import type { McpServerConfig, McpServerInfo, McpServerStatus, McpTransport } from '../shared/mcp.ts'
+import type { McpAuditEvent, McpAuditEventType, McpServerConfig, McpServerInfo, McpServerStatus, McpTransport } from '../shared/mcp.ts'
 import { hydrateIcons as hydrateRegisteredIcons } from './icons.ts'
 
 /** Wire the settings dialog (list view + transport-specific add/edit form). */
@@ -139,11 +139,199 @@ export function wireSettings(): void {
     connecting: 'Connecting…',
     disconnected: 'Disconnected',
     error: 'Error',
+    'needs-approval': 'Needs approval',
   }
 
   const renderList = (): void => {
-    listEl.replaceChildren(...servers.map(renderServerRow))
+    listEl.replaceChildren(...servers.map(renderServerItem))
     hydrateIcons()
+  }
+
+  // ── Server details (capabilities + audit trail) ───────────────────────
+
+  /** Human label per audit event type. */
+  const AUDIT_LABELS: Record<McpAuditEventType, string> = {
+    approve: 'Approved to run locally',
+    revoke: 'Approval revoked',
+    relock: 'Approval reset',
+    network: 'Network policy',
+    deleted: 'Server deleted',
+  }
+
+  /** Fresh audit events per server id, so re-renders don't refetch. */
+  const auditCache = new Map<string, McpAuditEvent[]>()
+
+  /**
+   * Column wrapper: the action row plus a collapsible capabilities/audit
+   * panel underneath. Built-in servers have no panel (nothing user-managed).
+   */
+  const renderServerItem = (info: McpServerInfo): HTMLElement => {
+    const wrap = document.createElement('div')
+    wrap.className = 'mcp-server-item'
+    const row = renderServerRow(info)
+    wrap.appendChild(row)
+    if (info.builtIn) return wrap
+
+    const details = buildDetailsShell(info)
+    wrap.appendChild(details)
+    const toggle = row.querySelector<HTMLButtonElement>('[data-details-toggle]')
+    if (toggle) {
+      toggle.addEventListener('click', () => {
+        const wasHidden = details.hidden
+        details.hidden = !wasHidden
+        toggle.setAttribute('aria-expanded', String(wasHidden))
+        toggle.classList.toggle('is-open', wasHidden === true)
+        // Load the audit trail on first open (subsequent opens use the cache).
+        if (wasHidden) void loadDetails(info.id, details)
+      })
+    }
+    return wrap
+  }
+
+  /** A labelled value line inside a details panel. */
+  const makeDetailRow = (label: string, value: string, tone: 'default' | 'warn' | 'ok' = 'default'): HTMLElement => {
+    const rowEl = document.createElement('div')
+    rowEl.className = 'flex items-baseline justify-between gap-3'
+    const dt = document.createElement('span')
+    dt.className = 'shrink-0 text-[11px] font-medium text-dim'
+    dt.textContent = label
+    const dd = document.createElement('span')
+    dd.className =
+      tone === 'warn'
+        ? 'min-w-0 text-right text-[11px] leading-relaxed text-amber-700 dark:text-amber-400'
+        : tone === 'ok'
+          ? 'min-w-0 text-right text-[11px] font-medium leading-relaxed text-emerald-700 dark:text-emerald-400'
+          : 'min-w-0 text-right text-[11px] leading-relaxed text-ink/90'
+    dd.textContent = value
+    rowEl.append(dt, dd)
+    return rowEl
+  }
+
+  const makeDetailsSection = (title: string, rows: HTMLElement[]): HTMLElement => {
+    const sec = document.createElement('div')
+    sec.className = 'flex flex-col gap-1.5'
+    const h = document.createElement('h4')
+    h.className = 'text-[11px] font-semibold uppercase tracking-wide text-dim/80'
+    h.textContent = title
+    sec.appendChild(h)
+    for (const r of rows) sec.appendChild(r)
+    return sec
+  }
+
+  /**
+   * Capabilities disclosure. For STDIO this is what running the local program
+   * actually grants (file access under the user account, minimal env, no
+   * network sandbox); for HTTP/SSE it reflects the enforced sidecar policy.
+   */
+  const buildDetailsShell = (info: McpServerInfo): HTMLElement => {
+    const shell = document.createElement('div')
+    shell.className = 'mcp-server-details'
+    shell.hidden = true
+    shell.dataset.serverDetails = info.id
+
+    const capRows: HTMLElement[] = []
+    if (info.transport === 'stdio') {
+      const s = info as McpServerInfo & { command: string; args?: string[]; cwd?: string }
+      const cmd = [s.command, ...(s.args ?? [])].filter(Boolean).join(' ')
+      capRows.push(makeDetailRow('Runs', cmd, 'default'))
+      if (s.cwd) capRows.push(makeDetailRow('Working directory', s.cwd, 'default'))
+      capRows.push(makeDetailRow('File access', 'Full — your user permissions, anywhere you can read or write', 'warn'))
+      capRows.push(makeDetailRow('Environment', 'Minimal — standard variables plus the ones configured for this server', 'default'))
+      capRows.push(makeDetailRow('Network', 'Not restricted — the process can reach any host (no sandbox)', 'warn'))
+      capRows.push(
+        makeDetailRow(
+          'Trust',
+          info.status === 'needs-approval' ? 'Not approved — cannot start' : 'Approved — starts when you connect it',
+          info.status === 'needs-approval' ? 'warn' : 'ok',
+        ),
+      )
+    } else {
+      const r = info as McpServerInfo & { url: string; timeout?: number; headers?: Record<string, string> }
+      const allowed = (info as { privateNetworkAllowed?: boolean }).privateNetworkAllowed === true
+      capRows.push(makeDetailRow('Endpoint', r.url, 'default'))
+      capRows.push(
+        makeDetailRow('Network policy', allowed ? 'Local & private networks allowed' : 'Public internet only', allowed ? 'warn' : 'default'),
+      )
+      if (allowed) {
+        capRows.push(
+          makeDetailRow('Reach', 'Can access localhost, your LAN and cloud-metadata endpoints', 'warn'),
+        )
+      }
+      const headerCount = r.headers ? Object.keys(r.headers).length : 0
+      capRows.push(
+        makeDetailRow('Headers', headerCount > 0 ? `${headerCount} configured — values stay masked` : 'None', 'default'),
+      )
+      capRows.push(makeDetailRow('Timeout', `${r.timeout ?? 30}s`, 'default'))
+    }
+    shell.appendChild(makeDetailsSection('What this server can do', capRows))
+
+    // Audit trail loads on first expand.
+    const auditTitle = document.createElement('div')
+    auditTitle.className = 'mt-3 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-dim/80'
+    const auditIcon = document.createElement('i')
+    auditIcon.className = 'size-3.5'
+    auditIcon.setAttribute('data-lucide', 'history')
+    const auditLabel = document.createElement('span')
+    auditLabel.textContent = 'Trust & policy history'
+    auditTitle.append(auditIcon, auditLabel)
+    const auditBody = document.createElement('div')
+    auditBody.className = 'mt-1.5'
+    auditBody.dataset.auditBody = info.id
+    auditBody.textContent = 'Loading…'
+    shell.append(auditTitle, auditBody)
+    return shell
+  }
+
+  const loadDetails = async (id: string, shell: HTMLElement): Promise<void> => {
+    const body = shell.querySelector<HTMLElement>('[data-audit-body]')
+    if (!body) return
+    let events: McpAuditEvent[]
+    try {
+      if (!auditCache.has(id)) {
+        auditCache.set(id, await getMcpServerAudit(id))
+      }
+      events = auditCache.get(id) ?? []
+    } catch {
+      body.textContent = 'Could not load history.'
+      return
+    }
+    if (events.length === 0) {
+      const empty = document.createElement('p')
+      empty.className = 'text-[11px] leading-relaxed text-dim/70'
+      empty.textContent = 'No trust or policy changes yet — approvals and network-policy changes will appear here.'
+      body.replaceChildren(empty)
+      return
+    }
+    const list = document.createElement('ol')
+    list.className = 'flex flex-col gap-1.5'
+    // Newest first.
+    const sorted = [...events].sort((a, b) => b.at - a.at)
+    for (const ev of sorted) {
+      const li = document.createElement('li')
+      li.className = 'flex items-baseline justify-between gap-3'
+      const left = document.createElement('span')
+      left.className = 'flex min-w-0 flex-col gap-0.5'
+      const label = document.createElement('span')
+      label.className =
+        ev.type === 'approve'
+          ? 'truncate text-[11px] font-medium text-emerald-700 dark:text-emerald-400'
+          : ev.type === 'revoke' || ev.type === 'relock'
+            ? 'truncate text-[11px] font-medium text-amber-700 dark:text-amber-400'
+            : 'truncate text-[11px] font-medium text-ink'
+      label.textContent = AUDIT_LABELS[ev.type]
+      const detail = document.createElement('span')
+      detail.className = 'truncate text-[11px] text-dim/90'
+      detail.textContent = ev.detail
+      detail.title = ev.detail
+      left.append(label, detail)
+      const when = document.createElement('time')
+      when.className = 'shrink-0 text-[10px] text-dim/70'
+      when.dateTime = new Date(ev.at).toISOString()
+      when.textContent = new Date(ev.at).toLocaleString()
+      li.append(left, when)
+      list.appendChild(li)
+    }
+    body.replaceChildren(list)
   }
 
   const renderServerRow = (info: McpServerInfo): HTMLElement => {
@@ -196,16 +384,188 @@ export function wireSettings(): void {
       err.title = info.error
       textCol.appendChild(err)
     }
+    if (info.status === 'needs-approval') {
+      // Unapproved STDIO server: it must never silently start, so surface the
+      // risk next to the reason it is paused.
+      const warn = document.createElement('p')
+      warn.className = 'flex items-start gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-2.5 py-2 text-xs leading-relaxed text-amber-700 dark:text-amber-400'
+      const icon = document.createElement('i')
+      icon.className = 'mt-0.5 size-3.5 shrink-0'
+      icon.setAttribute('data-lucide', 'triangle-alert')
+      const span = document.createElement('span')
+      span.textContent = info.error ??
+        `“${info.name}” runs a local program on your machine and has not been approved yet.`
+      warn.append(icon, span)
+      textCol.appendChild(warn)
+    }
     row.appendChild(textCol)
-
+    // Trust & network policy — user-configured servers only. Built-ins (Exa)
+    // are code-owned and not user-managed.
     if (!info.builtIn) {
+      if (info.transport === 'stdio') {
+        if (info.status === 'needs-approval') {
+          // Primary action stays visible, not tucked behind the hover actions.
+          row.appendChild(makeApproveButton(info))
+        } else {
+          textCol.appendChild(makeApprovedIndicator(info))
+        }
+      } else {
+        textCol.appendChild(makeNetworkPolicyControl(info))
+      }
       const actions = document.createElement('div')
       actions.className = 'mcp-row-actions'
+      if (info.transport === 'stdio' && info.status !== 'needs-approval') {
+        // Withdraw trust without deleting the server (visible, like approve).
+        const revokeBtn = makeActionButton('shield-off', `Revoke approval for ${info.name}`, () => void revokeServerApproval(info))
+        revokeBtn.title =
+          `Stop trusting “${info.name}”. Its local program is stopped and must be ` +
+          'approved again before it can start.'
+        row.appendChild(revokeBtn)
+      }
+      const detailsBtn = makeActionButton('chevron-down', `Server details for ${info.name}`, () => {})
+      detailsBtn.dataset.detailsToggle = 'true'
+      detailsBtn.setAttribute('aria-expanded', 'false')
+      detailsBtn.classList.add('details-toggle')
+      detailsBtn.title = 'Capabilities & trust history'
+      actions.appendChild(detailsBtn)
       actions.appendChild(makeActionButton('pencil', `Edit ${info.name}`, () => startEdit(info)))
       actions.appendChild(makeActionButton('trash-2', `Delete ${info.name}`, () => void removeServer(info)))
       row.appendChild(actions)
     }
     return row
+  }
+
+  /**
+   * “Approve & start” — the explicit trust action for a STDIO server. Clicking
+   * it records the approval (pinned to the current command/args/cwd), then
+   * connects so the local program actually starts while the user is watching.
+   */
+  const makeApproveButton = (info: McpServerInfo): HTMLButtonElement => {
+    const b = document.createElement('button')
+    b.type = 'button'
+    b.className =
+      'inline-flex h-7 shrink-0 items-center gap-1 rounded-full border border-amber-500/40 bg-amber-500/15 px-2.5 text-[11px] font-semibold text-amber-700 transition-colors duration-150 hover:bg-amber-500/25 active:bg-amber-500/30 dark:text-amber-400'
+    const icon = document.createElement('i')
+    icon.className = 'size-3'
+    icon.setAttribute('data-lucide', 'shield-check')
+    b.appendChild(icon)
+    const label = document.createElement('span')
+    label.textContent = 'Approve & start'
+    b.appendChild(label)
+    b.title =
+      `“${info.name}” runs a local program on your machine with your user permissions. ` +
+      'Approve it to record your trust and start the server.'
+    b.addEventListener('click', () => void approveAndStart(info))
+    return b
+  }
+
+  const approveAndStart = async (info: McpServerInfo): Promise<void> => {
+    listErrorEl.hidden = true
+    try {
+      await approveMcpServer(info.id)
+      // Recording the approval only un-pauses the server; connect is what
+      // spawns the local program, so run it as part of the same explicit act.
+      if (info.enabled !== false) {
+        await connectMcpServer(info.id)
+      }
+      void refresh()
+    } catch (e) {
+      showListError(e instanceof Error ? e.message : String(e))
+      void refresh()
+    }
+  }
+
+  /** Withdraw an approval from the list (server config stays intact). */
+  const revokeServerApproval = async (info: McpServerInfo): Promise<void> => {
+    listErrorEl.hidden = true
+    try {
+      await revokeMcpApproval(info.id)
+      void refresh()
+    } catch (e) {
+      showListError(e instanceof Error ? e.message : String(e))
+      void refresh()
+    }
+  }
+
+  /** Trust line under an approved STDIO row: the exact program that runs. */
+  const makeApprovedIndicator = (info: McpServerInfo): HTMLElement => {
+    const p = document.createElement('p')
+    const s = info as McpServerInfo & { command: string; args?: string[] }
+    const cmd = [s.command, ...(s.args ?? [])].filter(Boolean).join(' ')
+    p.className = 'truncate text-[11px] text-dim/80'
+    p.textContent = `Trusted to run locally — ${cmd}`
+    p.title = `This server runs “${cmd}” on your machine with your user permissions. Use the shield-off button to withdraw trust.`
+    return p
+  }
+
+  /**
+   * Row-level SSRF-policy switch for HTTP/SSE servers. Off = the sidecar
+   * blocks loopback/LAN/cloud-metadata destinations (default); on = the
+   * server may reach them. Turning it on saves via PUT (secrets preserved
+   * server-side) and reconnects so the new policy takes effect immediately.
+   */
+  const makeNetworkPolicyControl = (info: McpServerInfo): HTMLElement => {
+    const wrap = document.createElement('div')
+    wrap.className = 'flex flex-col gap-1'
+    const labelEl = document.createElement('label')
+    labelEl.className = 'flex w-fit cursor-pointer select-none items-center gap-2'
+    const checkbox = document.createElement('input')
+    checkbox.type = 'checkbox'
+    checkbox.className = 'sr-only'
+    checkbox.checked = (info as { privateNetworkAllowed?: boolean }).privateNetworkAllowed === true
+    const switchEl = document.createElement('span')
+    switchEl.className = 'switch'
+    const stateText = document.createElement('span')
+    stateText.className = 'text-[11px] font-medium text-dim'
+    const hintEl = document.createElement('p')
+    hintEl.className = 'text-[11px] leading-relaxed text-dim/70'
+    const applyCopy = (allowed: boolean): void => {
+      stateText.textContent = allowed ? 'Local & private networks allowed' : 'Internet only'
+      hintEl.textContent = allowed
+        ? 'This server may reach localhost, your LAN and cloud-metadata endpoints — only enable it if you trust the server.'
+        : 'Localhost, LAN and cloud-metadata addresses are blocked by the SSRF guard. Enable only for servers you trust, e.g. one running on this machine.'
+    }
+    applyCopy(checkbox.checked)
+    labelEl.append(checkbox, switchEl, stateText)
+    wrap.append(labelEl, hintEl)
+    checkbox.addEventListener('change', () => {
+      applyCopy(checkbox.checked)
+      void setNetworkPolicy(info, checkbox.checked)
+    })
+    return wrap
+  }
+
+  /** PUT the flipped private-network flag (masked secrets are preserved route-side). */
+  const setNetworkPolicy = async (info: McpServerInfo, allow: boolean): Promise<void> => {
+    listErrorEl.hidden = true
+    const remote = info as McpServerInfo & {
+      url: string
+      headers?: Record<string, string>
+      timeout?: number
+    }
+    const updated = {
+      id: info.id,
+      name: info.name,
+      enabled: info.enabled ?? true,
+      transport: remote.transport === 'sse' ? 'sse' : 'http',
+      url: remote.url,
+      ...(info.description ? { description: info.description } : {}),
+      ...(remote.headers && Object.keys(remote.headers).length > 0 ? { headers: remote.headers } : {}),
+      ...(typeof remote.timeout === 'number' ? { timeout: remote.timeout } : {}),
+      ...(allow ? { privateNetworkAllowed: true } : {}),
+    } as McpServerConfig
+    try {
+      await updateMcpServer(info.id, updated)
+      // Reconnect so a blocked server can actually reach its local endpoint
+      // (and a formerly-allowed one re-checks the new, stricter policy).
+      if (allow && info.enabled !== false) {
+        await connectMcpServer(info.id).catch(() => {})
+      }
+      void refresh()
+    } catch (e) {
+      showListError(e instanceof Error ? e.message : String(e))
+      void refresh()
+    }
   }
 
   const makeActionButton = (iconName: string, ariaLabel: string, onClick: () => void): HTMLButtonElement => {
@@ -434,13 +794,30 @@ export function wireSettings(): void {
   envBox.className = 'flex flex-col gap-2'
   envBox.append(envList, makeAddRowButton('Add variable', () => makeKvRow(envRows, envList, 'e.g. FOO', 'e.g. bar')))
 
+  const stdioWarning = document.createElement('div')
+  stdioWarning.className = 'flex items-start gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-2.5 py-2 text-[11px] leading-relaxed text-amber-700 dark:text-amber-400'
+  const stdioWarnIcon = document.createElement('i')
+  stdioWarnIcon.className = 'mt-0.5 size-3.5 shrink-0'
+  stdioWarnIcon.setAttribute('data-lucide', 'triangle-alert')
+  const stdioWarnText = document.createElement('span')
+  stdioWarnText.textContent =
+    'STDIO servers run a local program on your machine with your user permissions — they can ' +
+    'read and write files, reach the network, and execute commands. Only add servers you trust; ' +
+    'each server must be explicitly approved from the list before it can start.'
+  stdioWarning.append(stdioWarnIcon, stdioWarnText)
+
   const stdioGroup = document.createElement('div')
   stdioGroup.className = 'flex flex-col gap-4'
   stdioGroup.append(
-    makeField('Command', commandInput, 'Executable that starts the server — e.g. npx, uvx, node.'),
+    stdioWarning,
+    makeField('Command', commandInput, 'Executable that starts the server — e.g. npx, uvx, node. The process runs with a minimal environment: only standard variables plus the ones you list below.'),
     makeGroup('Arguments', argsBox, 'One argument per row, in order.'),
-    makeGroup('Environment variables', envBox, 'Optional variables injected into the process.'),
+    makeGroup('Environment variables', envBox, 'Optional variables injected into the process. Values are masked after saving — leave a mask (••••abcd) untouched to keep the stored value, or type a new one to replace it.'),
     makeField('Working directory', cwdInput, 'Optional directory the command runs in.'),
+    // Secret values (env vars, auth headers) are masked in this app's server
+    // responses since v0.2.0. Editing a stored server shows the mask
+    // (`••••abcd`); saving with a mask in place keeps the stored raw value.
+    // Type a real value to replace it, or remove the row to delete it.
   )
 
   // HTTP/SSE fields: url, headers, timeout.
@@ -455,11 +832,39 @@ export function wireSettings(): void {
   timeoutInput.min = '1'
   timeoutInput.max = '600'
 
+  // SSRF-policy opt-in for remote transports: private/local destinations are
+  // blocked unless the user explicitly allows them here.
+  const privateNetworkCheckbox = document.createElement('input')
+  privateNetworkCheckbox.type = 'checkbox'
+  privateNetworkCheckbox.id = 'mcp-private-network'
+  privateNetworkCheckbox.className = 'sr-only'
+  privateNetworkCheckbox.checked = false
+  const privateNetworkSwitch = document.createElement('span')
+  privateNetworkSwitch.className = 'switch'
+  const privateNetworkSwitchText = document.createElement('span')
+  privateNetworkSwitchText.className = 'text-sm font-medium text-ink'
+  privateNetworkSwitchText.textContent = 'Allow connections to local & private networks'
+  const privateNetworkLabel = document.createElement('label')
+  privateNetworkLabel.className = 'flex cursor-pointer select-none items-center gap-2.5'
+  privateNetworkLabel.append(privateNetworkCheckbox, privateNetworkSwitch, privateNetworkSwitchText)
+  const privateNetworkField = document.createElement('div')
+  privateNetworkField.className = 'min-w-0'
+  const privateNetworkFieldLabel = document.createElement('span')
+  privateNetworkFieldLabel.className = 'mb-1 block text-xs font-medium text-dim'
+  privateNetworkFieldLabel.textContent = 'Network access'
+  const privateNetworkHint = document.createElement('p')
+  privateNetworkHint.className = 'mt-1 text-[11px] leading-relaxed text-dim/80'
+  privateNetworkHint.textContent =
+    'Off by default: localhost, LAN and cloud-metadata addresses are blocked by the SSRF guard. ' +
+    'Turn this on only for servers you trust, e.g. an MCP server running on this machine.'
+  privateNetworkField.append(privateNetworkFieldLabel, privateNetworkLabel, privateNetworkHint)
+
   const httpGroup = document.createElement('div')
   httpGroup.className = 'flex flex-col gap-4'
   httpGroup.append(
     makeField('Endpoint URL', urlInput, 'Remote Streamable HTTP (or legacy SSE) endpoint.'),
-    makeGroup('Headers', headersBox, 'Optional request headers, e.g. Authorization.'),
+    privateNetworkField,
+    makeGroup('Headers', headersBox, 'Optional request headers, e.g. Authorization. Secret values are masked after saving — leave a mask (••••abcd) untouched to keep the stored value, or type a new one to replace it.'),
     makeField('Timeout (seconds)', timeoutInput, 'Defaults to 30.'),
   )
 
@@ -513,6 +918,8 @@ export function wireSettings(): void {
     cwdInput.value = isStdio && prefill ? (prefill.cwd ?? '') : ''
     urlInput.value = isStdio || !prefill ? '' : prefill.url
     timeoutInput.value = isStdio || !prefill ? '' : String(prefill.timeout ?? 30)
+    privateNetworkCheckbox.checked =
+      !isStdio && prefill ? (prefill as { privateNetworkAllowed?: boolean }).privateNetworkAllowed === true : false
 
     clearRows(argsList, argsRows)
     if (isStdio && prefill?.args) {
@@ -604,6 +1011,7 @@ export function wireSettings(): void {
       url,
       ...(Object.keys(headers).length > 0 ? { headers } : {}),
       ...(Number.isFinite(parsedTimeout) && parsedTimeout > 0 ? { timeout: parsedTimeout } : {}),
+      ...(privateNetworkCheckbox.checked ? { privateNetworkAllowed: true } : {}),
     } as McpServerConfig
   }
 

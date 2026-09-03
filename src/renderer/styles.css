@@ -1486,6 +1486,31 @@ body.sidebar-collapsed #model-selector {
   outline-offset: 1px;
 }
 
+/* Chevron on the details toggle rotates when the panel is open. */
+.details-toggle svg {
+  transition: transform 0.15s ease;
+}
+.details-toggle.is-open svg {
+  transform: rotate(180deg);
+}
+
+/* Expanded capabilities/audit panel under a server row. */
+.mcp-server-item {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.mcp-server-details {
+  margin: 0.25rem 0.125rem 0.125rem;
+  padding: 0.625rem 0.75rem;
+  border-radius: 0.625rem;
+  border: 1px dashed color-mix(in oklab, var(--color-line) 90%, transparent);
+  background: color-mix(in oklab, var(--color-card) 45%, transparent);
+}
+.mcp-server-details[hidden] {
+  display: none;
+}
+
 /* Transport chip: uppercase, muted — same voice as the code-block language
    labels. */
 .mcp-transport-badge {
@@ -1557,6 +1582,16 @@ body.sidebar-collapsed #model-selector {
 }
 :root.dark .mcp-status-badge.is-error {
   color: #f87171;
+}
+.mcp-status-badge.is-needs-approval {
+  color: #b45309;
+  border-color: color-mix(in oklab, #f59e0b 35%, transparent);
+}
+:root.dark .mcp-status-badge.is-needs-approval {
+  color: #fbbf24;
+}
+.mcp-status-badge.is-needs-approval .mcp-status-dot {
+  animation: think-pulse 1.2s ease-in-out infinite;
 }
 
 /* On/off switch for the "Enabled" setting. */

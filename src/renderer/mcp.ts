@@ -9,10 +9,10 @@
  * `McpServerConfig` from `src/shared/mcp.ts` — the UI must render different
  * forms for STDIO (command/args/env) vs HTTP/SSE (url/headers/timeout).
  */
-import type { McpServerConfig, McpServerInfo, McpTool } from "../shared/mcp.ts";
+import type { McpAuditEvent, McpServerConfig, McpServerInfo, McpTool } from "../shared/mcp.ts";
 import { MCP_ROUTE } from "../shared/mcp.ts";
 
-export type { McpServerConfig, McpServerInfo, McpTool } from "../shared/mcp.ts";
+export type { McpAuditEvent, McpServerConfig, McpServerInfo, McpTool } from "../shared/mcp.ts";
 
 async function handleError(res: Response): Promise<never> {
   let body: unknown = null;
@@ -68,6 +68,37 @@ export async function connectMcpServer(id: string): Promise<McpServerInfo> {
   const res = await fetch(`${MCP_ROUTE}/${encodeURIComponent(id)}/connect`, { method: "POST" });
   if (!res.ok) await handleError(res);
   return (await res.json()) as McpServerInfo;
+}
+
+/**
+ * Explicitly approve a STDIO server so its local program may start. The
+ * decision is recorded sidecar-side, separately from the server config, and
+ * is revoked automatically if the command/args/cwd later change.
+ */
+export async function approveMcpServer(id: string): Promise<McpServerInfo> {
+  const res = await fetch(`${MCP_ROUTE}/${encodeURIComponent(id)}/approve`, { method: "POST" });
+  if (!res.ok) await handleError(res);
+  return (await res.json()) as McpServerInfo;
+}
+
+/**
+ * Withdraw an earlier approval: the server's local program is stopped and it
+ * returns to `needs-approval`. The config itself is untouched.
+ */
+export async function revokeMcpApproval(id: string): Promise<McpServerInfo> {
+  const res = await fetch(`${MCP_ROUTE}/${encodeURIComponent(id)}/revoke-approval`, { method: "POST" });
+  if (!res.ok) await handleError(res);
+  return (await res.json()) as McpServerInfo;
+}
+
+/** Trust & policy change history for a server (approve/revoke/network). */
+export async function getMcpServerAudit(id: string): Promise<McpAuditEvent[]> {
+  const res = await fetch(`${MCP_ROUTE}/${encodeURIComponent(id)}/audit`, {
+    headers: { Accept: "application/json" },
+  });
+  if (!res.ok) await handleError(res);
+  const data = (await res.json()) as { events: McpAuditEvent[] };
+  return data.events ?? [];
 }
 
 export async function disconnectMcpServer(id: string): Promise<McpServerInfo> {
