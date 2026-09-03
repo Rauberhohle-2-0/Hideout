@@ -62,6 +62,12 @@ export interface Provider {
   readonly id: string;
   /** Human name shown in logs/UI. */
   readonly name: string;
+  /**
+   * Whether this provider runs models locally on the user's machine. Local
+   * providers receive Hideout's code-owned base system prompt; remote
+   * providers opt out (false) and keep their own system behaviour.
+   */
+  readonly isLocal: boolean;
   /** Whether the provider can be reached right now. */
   isAvailable(): Promise<boolean>;
   /** Models usable right now. Returns `[]` when not connected. */

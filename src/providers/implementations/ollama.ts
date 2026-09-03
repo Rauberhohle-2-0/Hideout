@@ -74,6 +74,13 @@ export class OllamaProvider extends BaseProvider {
   readonly id = "ollama";
   readonly name = "Ollama";
 
+  /**
+   * Local provider: requests get Hideout's code-owned base system prompt
+   * (src/providers/core/local-prompt.ts) so on-device models follow the
+   * app's answer/search policy without a hosted system prompt.
+   */
+  readonly isLocal = true;
+
   private readonly baseUrl: string;
   private readonly fetchImpl: typeof fetch;
   private readonly timeoutMs: number;

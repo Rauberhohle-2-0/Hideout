@@ -14,12 +14,24 @@
  *   }
  *
  *   registry.register(new MyProvider());
+ *
+ * Providers that run models on the user's machine must opt in to Hideout's
+ * code-owned base system prompt by overriding `isLocal` with `true` (see
+ * `OllamaProvider`). Remote providers keep the default `false` and pass
+ * their requests through unchanged.
  */
 import type { ChatDelta, ChatOptions, ChatResult, Model, Provider } from "./types.ts";
 
 export abstract class BaseProvider implements Provider {
   abstract readonly id: string;
   abstract readonly name: string;
+
+  /**
+   * Conservative default: providers are remote unless they opt in. Local
+   * providers (e.g. `OllamaProvider`) override this with `true` so their
+   * requests receive Hideout's code-owned base system prompt.
+   */
+  readonly isLocal: boolean = false;
 
   abstract isAvailable(): Promise<boolean>;
   abstract listModels(): Promise<Model[]>;

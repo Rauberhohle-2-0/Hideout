@@ -21,6 +21,7 @@ import { greeting, tip } from "./views.ts";
 import { OllamaProvider } from "../providers/implementations/ollama.ts";
 import { OpenAIProvider } from "../providers/implementations/openai.ts";
 import { AnthropicProvider } from "../providers/implementations/anthropic.ts";
+import { withLocalModelPrompt } from "../providers/core/local-prompt.ts";
 import { ProviderRegistry, providerRegistry } from "../providers/core/registry.ts";
 import type { Provider } from "../providers/core/types.ts";
 import {
@@ -679,6 +680,13 @@ export function createApp(options: CreateAppOptions = {}) {
       // isAvailable threw — continue to chat and let it surface the error
     }
 
+    // Local models (Ollama and friends) don't ship with the strong
+    // instruction-following of hosted Claude/OpenAI models, so they get
+    // Hideout's code-owned base system prompt. Remote providers keep their
+    // own well-tuned system behaviour and their requests pass through
+    // untouched. See src/providers/core/local-prompt.ts.
+    const requestMessages = provider.isLocal ? withLocalModelPrompt(messages) : messages;
+
     if (stream) {
       // Stream as SSE. Each chunk is `data: {"delta":"..."}\n\n` for visible
       // answer text, `data: {"thinking":"..."}` for the model's reasoning
@@ -687,7 +695,7 @@ export function createApp(options: CreateAppOptions = {}) {
       // `data: [DONE]`.
       const encoder = new TextEncoder();
       const chatToolsEnabled = toolsEnabled !== false;
-      const lastUser = [...messages].reverse().find((m) => m.role === "user");
+      const lastUser = [...requestMessages].reverse().find((m) => m.role === "user");
       const queryForSearch = lastUser?.content ?? "";
       const readable = new ReadableStream<Uint8Array>({
         async start(controller) {
@@ -699,14 +707,14 @@ export function createApp(options: CreateAppOptions = {}) {
             // Crucially, the search context is injected into the LLM messages so
             // the model's answer is grounded in the fresh results (fixes the
             // bug where sources were shown in the UI but not seen by the model).
-            let groundedMessages = messages;
+            let groundedMessages = requestMessages;
             if (chatToolsEnabled && queryForSearch.trim() && shouldUseWebSearch(queryForSearch)) {
               try {
                 const { sources, context } = await collectWebSearch(mcpManager, queryForSearch, c.req.raw.signal);
                 if (sources.length > 0 && !c.req.raw.signal.aborted) {
                   const line = `data: ${JSON.stringify({ sources })}\n\n`;
                   controller.enqueue(encoder.encode(line));
-                  if (context) groundedMessages = buildGroundedMessages(messages, context);
+                  if (context) groundedMessages = buildGroundedMessages(requestMessages, context);
                 }
               } catch {
                 // Search failure is non-fatal — continue to chat without sources
@@ -757,16 +765,16 @@ export function createApp(options: CreateAppOptions = {}) {
 
     try {
       const chatToolsEnabled = toolsEnabled !== false;
-      const lastUser = [...messages].reverse().find((m) => m.role === "user");
+      const lastUser = [...requestMessages].reverse().find((m) => m.role === "user");
       const queryForSearch = lastUser?.content ?? "";
       let sources: Source[] | undefined;
-      let groundedMessages = messages;
+      let groundedMessages = requestMessages;
       if (chatToolsEnabled && queryForSearch.trim() && shouldUseWebSearch(queryForSearch)) {
         try {
           const collected = await collectWebSearch(mcpManager, queryForSearch, c.req.raw.signal);
           if (collected.sources.length > 0) {
             sources = collected.sources;
-            if (collected.context) groundedMessages = buildGroundedMessages(messages, collected.context);
+            if (collected.context) groundedMessages = buildGroundedMessages(requestMessages, collected.context);
           }
         } catch {
           // ignore
