@@ -422,8 +422,8 @@ export type CreateAppOptions = {
   mcpManager?: McpManager;
   /** Custom fetch for MCP HTTP/SSE probes (tests). */
   mcpFetch?: typeof fetch;
-  /** Whether to auto-seed the free EXA server when store is empty (default true). */
-  autoSeedExa?: boolean;
+  /** Include the code-owned built-in EXA server (default true). */
+  includeExa?: boolean;
 };
 
 export function createApp(options: CreateAppOptions = {}) {
@@ -499,7 +499,10 @@ export function createApp(options: CreateAppOptions = {}) {
   // - stdio:  command + args + env (+ cwd)   — spawns a local subprocess (npx/uvx)
   // - http:   url + headers + timeoutSeconds — Streamable HTTP (modern, `https://mcp.exa.ai/mcp`)
   // - sse:    url + headers + timeoutSeconds — legacy SSE (deprecated but still supported)
-  // The default when the store is empty is the free EXA server over HTTP.
+  // Exa is a code-owned built-in (defined in `createExaMcpServer`) and is
+  // never written to the store. User servers persist in the OS user-data
+  // directory via `createDefaultMcpStore`.
+
   const mcpManager =
     options.mcpManager ??
     new McpManager({
@@ -513,10 +516,11 @@ export function createApp(options: CreateAppOptions = {}) {
           }
         })(),
       fetchImpl: options.mcpFetch ?? (globalThis.fetch as typeof fetch),
-      autoSeedExa: options.autoSeedExa ?? true,
+      includeExa: options.includeExa ?? true,
     });
-  // Eagerly seed EXA so GET /api/mcp/servers is never empty in production.
-  // Lazy init also works, but this makes the first request deterministic.
+  // Eagerly register the built-in EXA server so GET /api/mcp/servers is
+  // never empty in production. Lazy init also works, but this makes the
+  // first request deterministic.
   void mcpManager.init().catch(() => {});
   app.route("/", createMcpRoutes(mcpManager));
 

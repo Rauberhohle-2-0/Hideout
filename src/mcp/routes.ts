@@ -13,6 +13,8 @@
  *
  * All error bodies are `{ error: string }`.
  * Transport validation is strict: STDIO uses command/args/env, HTTP/SSE use url/headers/timeout.
+ * Built-in servers (Exa) are code-owned and read-only: POST/PUT/DELETE with a
+ * built-in id returns 409 and never touches the user store.
  */
 import { Hono } from "hono";
 import type { McpManager } from "./manager.ts";
@@ -39,8 +41,14 @@ export function createMcpRoutes(manager: McpManager): Hono {
     const err = validateMcpServerConfig(body);
     if (err) return c.json({ error: err }, 400);
     const normalized = normalizeMcpServerConfig(body as McpServerConfig);
-    const info = await manager.upsert(normalized);
-    return c.json(info, 201);
+    try {
+      const info = await manager.upsert(normalized);
+      return c.json(info, 201);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (/built-in/i.test(msg)) return c.json({ error: msg }, 409);
+      throw e;
+    }
   });
 
   // Single info
@@ -69,14 +77,27 @@ export function createMcpRoutes(manager: McpManager): Hono {
     const err = validateMcpServerConfig(withId);
     if (err) return c.json({ error: err }, 400);
     const normalized = normalizeMcpServerConfig(withId as McpServerConfig);
-    const info = await manager.upsert(normalized);
-    return c.json(info);
+    try {
+      const info = await manager.upsert(normalized);
+      return c.json(info);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (/built-in/i.test(msg)) return c.json({ error: msg }, 409);
+      throw e;
+    }
   });
 
   // Delete
   app.delete("/api/mcp/servers/:id", async (c) => {
     const id = c.req.param("id");
-    const ok = await manager.remove(id);
+    let ok: boolean;
+    try {
+      ok = await manager.remove(id);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (/built-in/i.test(msg)) return c.json({ error: msg }, 409);
+      throw e;
+    }
     if (!ok) return c.json({ error: `MCP server "${id}" not found` }, 404);
     return c.json({ id, deleted: true });
   });

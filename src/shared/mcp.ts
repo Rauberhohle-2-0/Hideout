@@ -14,10 +14,24 @@
  * - SSE (legacy Server-Sent Events): same shape as HTTP, legacy transport.
  *   Still uses `url` + `headers` + `timeout`. Kept separate because some
  *   servers still require the older SSE handshake.
+ *
+ * User-configured servers persist in the OS user-data directory. Code-owned
+ * built-ins (Exa) are defined in code, never persisted, and exposed to the
+ * UI as read-only (`builtIn: true` on `McpServerInfo`).
  */
 
 export const MCP_TRANSPORTS = ["stdio", "http", "sse"] as const;
 export type McpTransport = (typeof MCP_TRANSPORTS)[number];
+
+// ── Code-owned built-ins ────────────────────────────────────────────────
+// Exa is Hideout's default web-search provider. It is defined in code (see
+// `createExaMcpServer`) and is intentionally NOT persisted to the user MCP
+// file — the store only ever holds user-configured servers.
+
+/** Id of the built-in Exa server. Reserved: user configs with this id are rejected. */
+export const EXA_SERVER_ID = "exa";
+/** Exa Streamable HTTP endpoint (free tier, no API key required). */
+export const EXA_SERVER_URL = "https://mcp.exa.ai/mcp";
 
 export const MCP_ENABLED_DEFAULT = true;
 export const MCP_TIMEOUT_SECONDS_DEFAULT = 30;
@@ -89,6 +103,8 @@ export type McpTool = {
 
 export type McpServerInfo = McpServerConfig & {
   status: McpServerStatus;
+  /** True for code-owned built-ins (Exa): listed and usable, but never persisted or user-editable. */
+  builtIn?: boolean;
   error?: string;
   tools?: McpTool[];
   toolCount?: number;
@@ -237,12 +253,12 @@ export function redactMcpConfig(cfg: McpServerConfig): McpServerConfig {
 
 export function createExaMcpServer(overrides: Partial<McpHttpConfig> & { id?: string; name?: string } = {}): McpServerConfig {
   return normalizeMcpServerConfig({
-    id: overrides.id ?? "exa",
+    id: overrides.id ?? EXA_SERVER_ID,
     name: overrides.name ?? "Exa Search",
     description: "Exa AI web search — https://mcp.exa.ai/mcp (Streamable HTTP, no API key required for free tier)",
     enabled: true,
     transport: "http",
-    url: overrides.url ?? "https://mcp.exa.ai/mcp",
+    url: overrides.url ?? EXA_SERVER_URL,
     ...(overrides.headers ? { headers: overrides.headers } : {}),
     timeout: overrides.timeout ?? MCP_TIMEOUT_SECONDS_DEFAULT,
   });

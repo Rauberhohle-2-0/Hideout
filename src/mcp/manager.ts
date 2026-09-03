@@ -2,8 +2,9 @@
  * MCP Manager — lifecycle for MCP servers across all transports.
  *
  * Responsibilities:
- * - Own the `McpStore` (persisted configs)
- * - Seed the EXA.ai HTTP server when the store is empty (free-tier, no key)
+ * - Own the `McpStore` (persisted user configs)
+ * - Include the code-owned EXA.ai HTTP server as a built-in (free-tier, no
+ *   key) that is listed/usable but never persisted and never user-editable
  * - Connect / disconnect per server using the correct transport:
  *    - `stdio`  → StdioClientTransport (subprocess via `command` + `args` + `env`)
  *    - `http`   → StreamableHTTPClientTransport (Streamable HTTP, `url` + `headers` + `timeoutSeconds`)
@@ -19,7 +20,7 @@
  * HTTP/SSE configs never carry `command`/`args`/`env`.
  */
 import type { McpServerConfig, McpServerInfo, McpServerStatus, McpTool } from "../shared/mcp.ts";
-import { createExaMcpServer } from "../shared/mcp.ts";
+import { EXA_SERVER_ID, createExaMcpServer } from "../shared/mcp.ts";
 import type { McpStore } from "./store.ts";
 import { MemoryMcpStore } from "./store.ts";
 
@@ -38,6 +39,8 @@ type McpClient = {
 type Entry = {
   config: McpServerConfig;
   status: McpServerStatus;
+  /** True for code-owned built-ins (Exa) — never persisted, read-only. */
+  builtIn?: boolean;
   error?: string;
   client?: McpClient;
   tools?: McpTool[];
@@ -46,8 +49,8 @@ type Entry = {
 export type McpManagerOptions = {
   store?: McpStore;
   fetchImpl?: typeof fetch;
-  /** Disable auto-seed of EXA (useful for isolated tests). */
-  autoSeedExa?: boolean;
+  /** Include the code-owned built-in EXA server (default true). Set false in isolated tests. */
+  includeExa?: boolean;
   /** Factory to create a real SDK client (injected for testing or when SDK present). */
   clientFactory?: (config: McpServerConfig, fetchImpl?: typeof fetch) => Promise<McpClient>;
 };
@@ -56,7 +59,9 @@ export class McpManager {
   private readonly store: McpStore;
   private readonly fetchImpl: typeof fetch;
   private readonly clientFactory?: (config: McpServerConfig, fetchImpl?: typeof fetch) => Promise<McpClient>;
-  private readonly autoSeedExa: boolean;
+  private readonly includeExa: boolean;
+  /** Ids of code-owned built-ins — read-only, never persisted. */
+  private readonly builtInIds = new Set<string>();
   private readonly entries = new Map<string, Entry>();
   private initPromise: Promise<void> | null = null;
   private seeded = false;
@@ -65,22 +70,29 @@ export class McpManager {
     this.store = options.store ?? new MemoryMcpStore();
     this.fetchImpl = options.fetchImpl ?? (globalThis.fetch as typeof fetch);
     this.clientFactory = options.clientFactory;
-    this.autoSeedExa = options.autoSeedExa ?? true;
+    this.includeExa = options.includeExa ?? true;
   }
 
-  /** Load persisted configs into memory and seed EXA if empty. */
+  /**
+   * Load persisted user configs into memory, then register the code-owned
+   * built-ins (Exa). Built-ins come first so `listInfos()` / web search
+   * prefer them, and they are never written to the store.
+   */
   async init(): Promise<void> {
     if (this.seeded) return;
     if (this.initPromise) return this.initPromise;
     this.initPromise = (async () => {
+      const builtInId = this.includeExa ? EXA_SERVER_ID : null;
+      if (builtInId) this.builtInIds.add(builtInId);
+      if (builtInId) {
+        const exa = createExaMcpServer();
+        this.entries.set(exa.id, { config: exa, status: "disconnected", builtIn: true });
+      }
       const configs = await this.store.list();
       for (const c of configs) {
-        this.entries.set(c.id, { config: c, status: c.enabled === false ? "disconnected" : "disconnected" });
-      }
-      if (this.autoSeedExa && this.entries.size === 0) {
-        const exa = createExaMcpServer();
-        await this.store.set(exa);
-        this.entries.set(exa.id, { config: exa, status: "disconnected" });
+        // A user file can never shadow a built-in id.
+        if (builtInId && c.id === builtInId) continue;
+        this.entries.set(c.id, { config: c, status: "disconnected" });
       }
       this.seeded = true;
     })();
@@ -105,6 +117,7 @@ export class McpManager {
     return {
       ...e.config,
       status: e.status,
+      ...(e.builtIn ? { builtIn: true } : {}),
       ...(e.error ? { error: e.error } : {}),
       ...(e.tools ? { tools: e.tools, toolCount: e.tools.length } : {}),
     } as McpServerInfo;
@@ -117,6 +130,7 @@ export class McpManager {
       out.push({
         ...e.config,
         status: e.status,
+        ...(e.builtIn ? { builtIn: true } : {}),
         ...(e.error ? { error: e.error } : {}),
         ...(e.tools ? { tools: e.tools, toolCount: e.tools.length } : {}),
       } as McpServerInfo);
@@ -126,6 +140,9 @@ export class McpManager {
 
   async upsert(config: McpServerConfig): Promise<McpServerInfo> {
     await this.init();
+    if (this.isBuiltIn(config.id)) {
+      throw new Error(`MCP server "${config.id}" is built-in and cannot be modified`);
+    }
     // Disconnect old client if transport/config changed.
     const existing = this.entries.get(config.id);
     if (existing?.client) {
@@ -140,6 +157,9 @@ export class McpManager {
 
   async remove(id: string): Promise<boolean> {
     await this.init();
+    if (this.isBuiltIn(id)) {
+      throw new Error(`MCP server "${id}" is built-in and cannot be deleted`);
+    }
     const e = this.entries.get(id);
     if (!e) return false;
     if (e.client) {
@@ -279,6 +299,11 @@ export class McpManager {
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
     }
+  }
+
+  /** Built-in (code-owned) server ids — read-only, never persisted. */
+  private isBuiltIn(id: string): boolean {
+    return this.builtInIds.has(id);
   }
 
   private timeoutMs(config: McpServerConfig): number {
@@ -494,6 +519,7 @@ export class McpManager {
   /** For tests: clear in-memory entries (does not touch store file). */
   clearEntries(): void {
     this.entries.clear();
+    this.builtInIds.clear();
     this.seeded = false;
     this.initPromise = null;
   }
