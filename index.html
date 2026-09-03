@@ -74,8 +74,11 @@
         <div id="titlebar-controls" data-titlebar-row class="ml-auto flex items-center gap-3">
           <div class="titlebar-group flex h-[40px] items-center rounded-full border border-line/70 bg-card/80 px-2 backdrop-blur-md">
             <button
+              id="settings-button"
               type="button"
               aria-label="Settings"
+              aria-haspopup="dialog"
+              aria-expanded="false"
               class="grid size-8 place-items-center rounded-full text-dim transition-colors duration-150 hover:bg-black/10 hover:text-ink active:bg-black/15 dark:hover:bg-white/10 dark:hover:text-ink dark:active:bg-white/15"
             >
               <i class="size-5" data-lucide="settings"></i>
@@ -210,6 +213,94 @@
           </button>
         </div>
       </main>
+    </div>
+    <!-- Settings modal: MCP server management. The gear button in the title
+         bar opens it; the shell here is wired in src/renderer/main.ts
+         (wireSettings), which renders the server list and the add/edit form.
+         The dialog reuses the app's frosted-glass look and palette. -->
+    <div id="settings-backdrop" hidden>
+      <div id="settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+        <header class="flex shrink-0 items-center justify-between gap-3 border-b border-line/60 px-5 pb-3 pt-4">
+          <h2 id="settings-title" class="text-[15px] font-semibold text-ink">Settings</h2>
+          <button
+            id="settings-close"
+            type="button"
+            aria-label="Close settings"
+            class="grid size-8 place-items-center rounded-full text-dim transition-colors duration-150 hover:bg-black/10 hover:text-ink active:bg-black/15 dark:hover:bg-white/10 dark:hover:text-ink dark:active:bg-white/15"
+          >
+            <i class="size-4" data-lucide="x"></i>
+          </button>
+        </header>
+        <div id="settings-body" class="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4">
+          <!-- Server list view -->
+          <div id="mcp-view">
+            <div class="mb-3 flex items-end justify-between gap-3">
+              <div class="min-w-0">
+                <h3 class="text-sm font-semibold text-ink">MCP servers</h3>
+                <p class="mt-0.5 text-xs leading-relaxed text-dim">Add servers so the chat can use their tools.</p>
+              </div>
+              <button
+                id="mcp-add-button"
+                type="button"
+                class="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border border-line/70 bg-card/80 px-3 text-xs font-medium text-ink backdrop-blur-md transition-colors duration-150 hover:bg-black/10 active:bg-black/15 dark:hover:bg-white/10 dark:active:bg-white/15"
+              >
+                <i class="size-3.5" data-lucide="plus"></i>
+                Add server
+              </button>
+            </div>
+            <p id="mcp-lazy-connect-hint" class="mb-3 text-[11px] leading-relaxed text-dim/80">Servers connect on first use — a “Disconnected” status just means nothing has connected yet.</p>
+            <div id="mcp-list-error" role="alert" class="mb-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-200" hidden></div>
+            <div id="mcp-loading" class="flex items-center gap-2 py-8 text-sm text-dim">
+              <span class="settings-spinner" aria-hidden="true"></span>
+              Loading servers…
+            </div>
+            <div id="mcp-load-error" hidden>
+              <div class="flex items-center gap-3 py-6">
+                <p class="text-sm text-red-700 dark:text-red-300">Could not load MCP servers.</p>
+                <button
+                  id="mcp-retry-button"
+                  type="button"
+                  class="inline-flex h-7 items-center rounded-full border border-line/70 bg-card/80 px-3 text-xs font-medium text-ink transition-colors duration-150 hover:bg-black/10 active:bg-black/15 dark:hover:bg-white/10 dark:active:bg-white/15"
+                >
+                  Try again
+                </button>
+              </div>
+            </div>
+            <div id="mcp-empty" class="rounded-xl border border-dashed border-line/70 px-4 py-8 text-center" hidden>
+              <i class="mx-auto mb-2 block size-6 text-dim/60" data-lucide="server"></i>
+              <p class="text-sm font-medium text-ink">No MCP servers yet</p>
+              <p class="mt-1 text-xs text-dim">Add your first server to enable its tools in chat.</p>
+            </div>
+            <div id="mcp-list" class="flex flex-col gap-2"></div>
+          </div>
+          <!-- Add / edit server form view -->
+          <div id="mcp-form-view" hidden>
+            <button
+              id="mcp-form-back"
+              type="button"
+              class="mb-3 inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-medium text-dim transition-colors duration-150 hover:bg-black/10 hover:text-ink dark:hover:bg-white/10 dark:hover:text-ink"
+            >
+              <i class="size-3.5" data-lucide="chevron-left"></i>
+              MCP servers
+            </button>
+            <h3 id="mcp-form-title" class="mb-4 text-sm font-semibold text-ink">Add MCP server</h3>
+            <form id="mcp-form" novalidate>
+              <div id="mcp-form-fields" class="flex flex-col gap-4"></div>
+              <div id="mcp-form-error" role="alert" class="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-200" hidden></div>
+              <div class="mt-5 flex justify-end">
+                <button
+                  id="mcp-form-submit"
+                  type="submit"
+                  class="inline-flex h-8 items-center gap-1.5 rounded-full border border-accent/40 bg-accent/15 px-4 text-xs font-semibold text-ink transition-colors duration-150 hover:bg-accent/25 active:bg-accent/30 disabled:opacity-50"
+                >
+                  <i class="size-3.5" data-lucide="plus"></i>
+                  <span id="mcp-form-submit-label">Add server</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </div>
     </div>
     <noscript>
       <p>This window needs JavaScript.</p>

@@ -1322,3 +1322,269 @@ body.sidebar-collapsed #model-selector {
   width: 0.875rem;
   height: 0.875rem;
 }
+
+/*
+ * Settings modal — MCP server management.
+ *
+ * The gear button in the title bar opens a centered glass dialog (shell in
+ * index.html, wiring in src/renderer/main.ts). The dialog reuses the app's
+ * frosted-glass language (same palette variables, top-lit sheen, hairline
+ * borders as .glass-pane / .titlebar-group) and its light/dark theme.
+ */
+
+/* Backdrop: dims the window and centers the dialog. */
+#settings-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: grid;
+  place-items: center;
+  padding: 1.5rem;
+  background: rgb(15 23 42 / 35%);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  animation: settings-fade 0.16s ease-out;
+}
+:root.dark #settings-backdrop {
+  background: rgb(0 0 0 / 55%);
+}
+
+/* The `hidden` attribute must win over the display rules above and over any
+   display utility inside the dialog (e.g. `flex` on the list). */
+#settings-backdrop[hidden],
+#settings-backdrop [hidden] {
+  display: none;
+}
+
+@keyframes settings-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* The dialog itself: a frosted pane like .glass-pane, rounder and elevated
+   for a modal, sized to stay comfortably inside the window's minimum. */
+#settings-modal {
+  display: flex;
+  flex-direction: column;
+  width: min(34rem, 100%);
+  max-height: min(80vh, 40rem);
+  border-radius: 1.25rem;
+  border: 1px solid color-mix(in oklab, var(--color-line) 75%, transparent);
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 60%) 0%, transparent 30%),
+    color-mix(in oklab, var(--color-card) 92%, transparent);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 70%),
+    0 24px 60px -12px rgb(15 23 42 / 45%);
+  -webkit-backdrop-filter: blur(24px) saturate(150%);
+  backdrop-filter: blur(24px) saturate(150%);
+  animation: settings-pop 0.18s cubic-bezier(0.2, 0.9, 0.3, 1.15);
+}
+:root.dark #settings-modal {
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 6%) 0%, transparent 25%),
+    color-mix(in oklab, var(--color-card) 90%, transparent);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 10%),
+    0 24px 60px -12px rgb(0 0 0 / 60%);
+}
+
+@keyframes settings-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Modal body: the only scrollable region, so long server lists never push
+   the dialog past the window. Thin scrollbar like the sidebar's. */
+#settings-body {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in oklab, var(--color-line) 80%, transparent) transparent;
+}
+#settings-body::-webkit-scrollbar {
+  width: 6px;
+}
+#settings-body::-webkit-scrollbar-thumb {
+  background: color-mix(in oklab, var(--color-line) 80%, transparent);
+  border-radius: 9999px;
+}
+
+/* Small indeterminate spinner for async states (loading, saving). */
+.settings-spinner {
+  width: 0.875rem;
+  height: 0.875rem;
+  flex-shrink: 0;
+  border-radius: 9999px;
+  border: 2px solid color-mix(in oklab, var(--color-line) 85%, transparent);
+  border-top-color: var(--color-accent);
+  animation: settings-spin 0.7s linear infinite;
+}
+@keyframes settings-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Server rows: hairline-bordered cards, hover lifts the border like the
+   sources items. */
+.mcp-server-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 0;
+  padding: 0.625rem 0.75rem;
+  border-radius: 0.75rem;
+  border: 1px solid color-mix(in oklab, var(--color-line) 65%, transparent);
+  background: color-mix(in oklab, var(--color-card) 65%, transparent);
+  transition: border-color 0.14s ease, background-color 0.14s ease;
+}
+.mcp-server-row:hover {
+  border-color: color-mix(in oklab, var(--color-line) 90%, transparent);
+  background: color-mix(in oklab, var(--color-card) 85%, transparent);
+}
+
+/* Per-row hover actions, mirroring the sidebar session rows. */
+.mcp-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.125rem;
+  flex-shrink: 0;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.14s ease;
+}
+.mcp-server-row:hover .mcp-row-actions,
+.mcp-server-row:focus-within .mcp-row-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.mcp-action {
+  display: grid;
+  place-items: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 9999px;
+  color: var(--color-dim);
+  transition: background-color 0.14s ease, color 0.14s ease;
+}
+.mcp-action:hover {
+  background: color-mix(in oklab, var(--color-ink) 8%, transparent);
+  color: var(--color-ink);
+}
+.mcp-action:focus-visible {
+  outline: 2px solid color-mix(in oklab, var(--color-accent) 55%, transparent);
+  outline-offset: 1px;
+}
+
+/* Transport chip: uppercase, muted — same voice as the code-block language
+   labels. */
+.mcp-transport-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.125rem 0.4rem;
+  border-radius: 0.375rem;
+  background: color-mix(in oklab, var(--color-ink) 7%, transparent);
+  color: var(--color-dim);
+  font-size: 0.625rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* Built-in (code-owned) server chip — accent-tinted, read-only. */
+.mcp-builtin-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.125rem 0.4rem;
+  border-radius: 9999px;
+  border: 1px solid color-mix(in oklab, var(--color-accent) 35%, transparent);
+  background: color-mix(in oklab, var(--color-accent) 12%, transparent);
+  color: color-mix(in oklab, var(--color-accent) 75%, var(--color-dim));
+  font-size: 0.625rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* Connection status badge: small dot + label, tinted per state. */
+.mcp-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.125rem 0.5rem;
+  border-radius: 9999px;
+  border: 1px solid color-mix(in oklab, var(--color-line) 70%, transparent);
+  background: color-mix(in oklab, var(--color-card) 75%, transparent);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  line-height: 1.3;
+  color: var(--color-dim);
+  white-space: nowrap;
+}
+.mcp-status-dot {
+  width: 0.375rem;
+  height: 0.375rem;
+  border-radius: 9999px;
+  background: currentColor;
+}
+.mcp-status-badge.is-connected {
+  color: #15803d;
+}
+:root.dark .mcp-status-badge.is-connected {
+  color: #4ade80;
+}
+.mcp-status-badge.is-connecting {
+  color: #b45309;
+}
+:root.dark .mcp-status-badge.is-connecting {
+  color: #fbbf24;
+}
+.mcp-status-badge.is-connecting .mcp-status-dot {
+  animation: think-pulse 1.2s ease-in-out infinite;
+}
+.mcp-status-badge.is-error {
+  color: #dc2626;
+}
+:root.dark .mcp-status-badge.is-error {
+  color: #f87171;
+}
+
+/* On/off switch for the "Enabled" setting. */
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 2rem;
+  height: 1.125rem;
+  border-radius: 9999px;
+  background: color-mix(in oklab, var(--color-line) 90%, transparent);
+  transition: background-color 0.15s ease;
+  flex-shrink: 0;
+}
+.switch::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 0.875rem;
+  height: 0.875rem;
+  border-radius: 9999px;
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 30%);
+  transition: transform 0.15s ease;
+}
+input:checked + .switch {
+  background: var(--color-accent);
+}
+input:checked + .switch::after {
+  transform: translateX(0.875rem);
+}
