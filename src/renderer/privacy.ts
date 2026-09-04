@@ -8,6 +8,10 @@
  *
  * The choice itself persists in localStorage (`hideout.privacy.ephemeralChats`),
  * so it survives restarts, and is applied before the chat restore path runs.
+ *
+ * On restart the app opens the most recent *saved* chat (the ephemeral chats
+ * themselves are gone, so there is nothing to restore) instead of an empty
+ * draft — see the boot restore logic in `chat-controller.ts`.
  */
 import { sessionStore } from './sessions.ts'
 

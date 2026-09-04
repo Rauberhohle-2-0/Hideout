@@ -560,9 +560,21 @@ export function wireChat(): void {
 
   // Hydrate the last chat after the selection listener is registered. The
   // active id is persisted by SessionStore, so reopening the app restores the
-  // same conversation instead of showing an empty thread. On first launch (or
-  // after all chats were deleted), create the requested empty draft.
+  // same conversation instead of showing an empty thread. When no active id
+  // was persisted (the last chat was ephemeral under "do not save chat
+  // history", so it never reached storage), resume the newest saved
+  // conversation that actually has messages rather than opening an empty
+  // draft; message-less drafts are skipped because there is nothing to
+  // resume. Only on first launch (or after all chats were deleted or never
+  // saved) create the requested empty draft.
   const active = sessionStore.getActive()
-  const restored = active ?? sessionStore.create()
-  window.dispatchEvent(new CustomEvent('hideout:session-selected', { detail: restored.id }))
+  let restored = active
+  if (!restored) {
+    restored = sessionStore.list().find((s) => s.messages.length > 0) ?? null
+    // Keep the store in sync: highlight the resumed row, point the composer
+    // at it, and persist the active id so the next restart restores it too.
+    if (restored) sessionStore.setActive(restored.id)
+  }
+  const final = restored ?? sessionStore.create()
+  window.dispatchEvent(new CustomEvent('hideout:session-selected', { detail: final.id }))
 }
