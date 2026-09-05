@@ -190,6 +190,156 @@ export function shouldUseWebSearch(query: string): boolean {
   return false;
 }
 
+/**
+ * Follow-up signals that, on their own, don't trigger `shouldUseWebSearch`
+ * but *do* warrant a fresh search when the conversation already established
+ * grounded facts (e.g. "I heard Merz is the best chancellor — is that true?",
+ * "what do people think of him?", "is he popular?").
+ *
+ * Covers opinion/approval/poll language, hearsay verification ("I heard",
+ * "people say", "is that true"), and bare pronouns referring to a previously
+ * grounded entity.
+ *
+ * Exported for testing.
+ */
+const FOLLOWUP_SEARCH_SIGNALS =
+  /\b(best|worst|greatest|popular|popularity|approval|approve|approves|rating|ratings|poll|polls|survey|surveys|think|thinks|thought|people|public|opinion|reputation|legacy|record|heard|rumor|rumour|claim|claims|really|truth|true|right\?|correct\?|is that so|do you agree)\b|\b(he|she|they|him|her|them|his|hers|their|it)\b/i;
+
+const STOPWORDS = new Set([
+  "the",
+  "that",
+  "this",
+  "with",
+  "from",
+  "have",
+  "has",
+  "are",
+  "was",
+  "were",
+  "will",
+  "would",
+  "what",
+  "when",
+  "where",
+  "which",
+  "who",
+  "how",
+  "why",
+  "your",
+  "about",
+  "into",
+  "over",
+  "under",
+  "then",
+  "than",
+  "them",
+  "they",
+  "hear",
+  "heard",
+  "people",
+  "think",
+  "years",
+]);
+
+function contentTokens(text: string): Set<string> {
+  const words = text
+    .toLowerCase()
+    .replace(/[^a-z0-9äöüß\s]/gi, " ")
+    .split(/\s+/)
+    .filter((w) => w.length >= 4 && !STOPWORDS.has(w));
+  return new Set(words);
+}
+
+export type TurnMessage = {
+  role: "user" | "assistant" | "system";
+  content: string;
+  sources?: Source[];
+};
+
+function lastUserMessage(messages: readonly TurnMessage[]): TurnMessage | undefined {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i]!.role === "user") return messages[i];
+  }
+  return undefined;
+}
+
+/**
+ * Conversation-aware search decision.
+ *
+ * `shouldUseWebSearch(query)` looks at one message in isolation, so a
+ * follow-up like "I heard Merz is the best chancellor in years?" never
+ * searches — and the model falls back to stale params (Scholz) instead of
+ * the facts grounded two turns earlier. This version also looks at history:
+ * when prior turns were grounded (earlier user question needed a search, or
+ * an assistant turn carries `sources`) and the new turn references that
+ * context (follow-up signals or token overlap), it triggers a fresh search
+ * with a rewritten query that carries the entity forward.
+ *
+ * Returns whether to search and which query to send to the search tool.
+ * Exported for testing.
+ */
+export function decideWebSearch(messages: readonly TurnMessage[]): { shouldSearch: boolean; searchQuery: string } {
+  const lastUser = lastUserMessage(messages);
+  const query = lastUser?.content ?? "";
+  if (!query.trim()) return { shouldSearch: false, searchQuery: "" };
+  if (shouldUseWebSearch(query)) return { shouldSearch: true, searchQuery: query };
+
+  // Only consider follow-ups when there is prior conversation.
+  const prior = messages.slice(0, messages.lastIndexOf(lastUser!));
+  if (prior.length === 0) return { shouldSearch: false, searchQuery: "" };
+
+  const priorUserQueries = prior.filter((m) => m.role === "user").map((m) => m.content);
+  const priorAssistants = prior.filter((m) => m.role === "assistant");
+  const hadGroundedHistory =
+    priorUserQueries.some((q) => shouldUseWebSearch(q)) || prior.some((m) => Array.isArray(m.sources) && m.sources.length > 0);
+  if (!hadGroundedHistory) return { shouldSearch: false, searchQuery: "" };
+
+  const hasFollowUpSignal = FOLLOWUP_SEARCH_SIGNALS.test(query);
+  // Token overlap with recent history (last 4 turns) — e.g. "Merz",
+  // "chancellor", "Germany" carried into the follow-up.
+  const recentText = prior.slice(-4).map((m) => m.content).join(" ");
+  const queryTokens = contentTokens(query);
+  const recentTokens = contentTokens(recentText);
+  let overlap = 0;
+  for (const t of queryTokens) if (recentTokens.has(t)) overlap += 1;
+
+  if (!hasFollowUpSignal && overlap === 0) return { shouldSearch: false, searchQuery: "" };
+
+  // Rewrite the query so the search tool sees the entity, not just "he".
+  // Prefer the most recent prior user question that needed a search
+  // ("Who is the current Chancellor of Germany?"), else the last assistant
+  // answer's lead (which holds the entity name).
+  const anchorUser = [...priorUserQueries].reverse().find((q) => shouldUseWebSearch(q));
+  const anchorAssistant = priorAssistants.length > 0 ? priorAssistants[priorAssistants.length - 1]!.content.slice(0, 200) : "";
+  const anchor = anchorUser ?? anchorAssistant;
+  const searchQuery = anchor ? `${query} Context: ${anchor}`.slice(0, 500) : query;
+  return { shouldSearch: true, searchQuery };
+}
+
+/**
+ * Continuity reminder built from previously grounded assistant turns.
+ *
+ * Search grounding is otherwise ephemeral: `buildGroundedMessages` injects
+ * results for one turn only, and the next turn sends just user/assistant
+ * texts. Without this, a follow-up with no fresh search lets the model
+ * revert to stale pretraining ("Scholz is chancellor"). When earlier
+ * assistant turns carry `sources` (sent by the renderer snapshot), remind
+ * the model to treat them as authoritative.
+ *
+ * Exported for testing.
+ */
+export function buildContinuityContext(messages: readonly TurnMessage[]): string {
+  const grounded = messages.filter(
+    (m) => m.role === "assistant" && Array.isArray(m.sources) && m.sources.length > 0 && m.content.trim(),
+  );
+  if (grounded.length === 0) return "";
+  const lines = grounded
+    .slice(-2)
+    .map((m) => `- ${m.content.trim().slice(0, 300)}`)
+    .join("\n");
+  return `Previously verified in this conversation via web search:\n${lines}\nTreat these as authoritative unless newer search results contradict them. Do not revert to stale pretraining.`;
+}
+
 /** Enriched item extracted from EXA / generic MCP search results. */
 type SearchItem = { url: string; title?: string; text?: string };
 
@@ -841,7 +991,7 @@ export function createApp(options: CreateAppOptions = {}) {
     const { providerId, model, messages, stream, toolsEnabled } = body as {
       providerId: string;
       model: string;
-      messages: Array<{ role: "user" | "assistant" | "system"; content: string }>;
+      messages: TurnMessage[];
       stream?: boolean;
       toolsEnabled?: boolean;
     };
@@ -875,8 +1025,8 @@ export function createApp(options: CreateAppOptions = {}) {
       // `data: [DONE]`.
       const encoder = new TextEncoder();
       const chatToolsEnabled = toolsEnabled !== false;
-      const lastUser = [...requestMessages].reverse().find((m) => m.role === "user");
-      const queryForSearch = lastUser?.content ?? "";
+      const searchDecision = decideWebSearch(requestMessages);
+      const continuityContext = buildContinuityContext(requestMessages);
       if (!tryAcquireChatSlot()) {
         return c.json({ error: "Too many concurrent chats — wait for one to finish." }, 429);
       }
@@ -885,24 +1035,34 @@ export function createApp(options: CreateAppOptions = {}) {
         async start(controller) {
           try {
             // Kick off a web-search via MCP when tools are enabled *and*
-            // the query looks like it needs fresh web info. The heuristic
-            // avoids searching for greetings / small-talk / casual chat.
+            // the turn looks like it needs fresh web info. `decideWebSearch`
+            // is conversation-aware: follow-ups referencing previously
+            // grounded facts ("I heard Merz is the best...?", "is he
+            // popular?") trigger a fresh search with the entity carried
+            // forward, and `continuityContext` reminds the model of earlier
+            // verified answers so it can't revert to stale pretraining.
             // Only successful searches produce a `sources` pill — no pill otherwise.
             // Crucially, the search context is injected into the LLM messages so
             // the model's answer is grounded in the fresh results (fixes the
             // bug where sources were shown in the UI but not seen by the model).
             let groundedMessages = requestMessages;
-            if (chatToolsEnabled && queryForSearch.trim() && shouldUseWebSearch(queryForSearch)) {
+            if (chatToolsEnabled && searchDecision.shouldSearch && searchDecision.searchQuery.trim()) {
               try {
-                const { sources, context } = await collectWebSearch(mcpManager, queryForSearch, c.req.raw.signal);
+                const { sources, context } = await collectWebSearch(mcpManager, searchDecision.searchQuery, c.req.raw.signal);
+                const combined = [continuityContext, context].filter(Boolean).join("\n\n");
                 if (sources.length > 0 && !c.req.raw.signal.aborted) {
                   const line = `data: ${JSON.stringify({ sources })}\n\n`;
                   controller.enqueue(encoder.encode(line));
-                  if (context) groundedMessages = buildGroundedMessages(requestMessages, context);
+                  if (combined) groundedMessages = buildGroundedMessages(requestMessages, combined);
+                } else if (continuityContext) {
+                  groundedMessages = buildGroundedMessages(requestMessages, continuityContext);
                 }
               } catch {
-                // Search failure is non-fatal — continue to chat without sources
+                // Search failure is non-fatal — fall back to continuity only
+                if (continuityContext) groundedMessages = buildGroundedMessages(requestMessages, continuityContext);
               }
+            } else if (continuityContext) {
+              groundedMessages = buildGroundedMessages(requestMessages, continuityContext);
             }
 
             const iterator = provider.chatStream
@@ -963,20 +1123,25 @@ export function createApp(options: CreateAppOptions = {}) {
     const timed = withTimeoutSignal(c.req.raw.signal, CHAT_TIMEOUT_MS);
     try {
       const chatToolsEnabled = toolsEnabled !== false;
-      const lastUser = [...requestMessages].reverse().find((m) => m.role === "user");
-      const queryForSearch = lastUser?.content ?? "";
+      const searchDecision = decideWebSearch(requestMessages);
+      const continuityContext = buildContinuityContext(requestMessages);
       let sources: Source[] | undefined;
       let groundedMessages = requestMessages;
-      if (chatToolsEnabled && queryForSearch.trim() && shouldUseWebSearch(queryForSearch)) {
+      if (chatToolsEnabled && searchDecision.shouldSearch && searchDecision.searchQuery.trim()) {
         try {
-          const collected = await collectWebSearch(mcpManager, queryForSearch, timed.signal);
+          const collected = await collectWebSearch(mcpManager, searchDecision.searchQuery, timed.signal);
+          const combined = [continuityContext, collected.context].filter(Boolean).join("\n\n");
           if (collected.sources.length > 0) {
             sources = collected.sources;
-            if (collected.context) groundedMessages = buildGroundedMessages(requestMessages, collected.context);
+            if (combined) groundedMessages = buildGroundedMessages(requestMessages, combined);
+          } else if (continuityContext) {
+            groundedMessages = buildGroundedMessages(requestMessages, continuityContext);
           }
         } catch {
-          // ignore
+          if (continuityContext) groundedMessages = buildGroundedMessages(requestMessages, continuityContext);
         }
+      } else if (continuityContext) {
+        groundedMessages = buildGroundedMessages(requestMessages, continuityContext);
       }
       const result = await provider.chat({ model, messages: groundedMessages, signal: timed.signal, toolsEnabled: chatToolsEnabled });
       let content = stripSourcesFromContent(result.content);
